@@ -1,6 +1,6 @@
 # ReFueled – Arbeitspakete, Abhängigkeiten, Auslastung
 
-Stand 2026-10-12 (Phase 1, zur Freigabe). Status: `blocked` / `ready` / `in_progress` / `review` / `done`.
+Stand 2026-10-13 (Phase 2 freigegeben, Welle 1 läuft). Status: `blocked` / `ready` / `in_progress` / `review` / `done`.
 Modell: **O** = Opus, **S** = Sonnet (Opus prüft jeden Diff und committet). Umfang: S ≈ < 300
 geänderte Zeilen, M ≈ 300–1000, L > 1000 oder viel Iteration.
 Besessene Dateien darf nur das genannte Paket ändern. `runtime.h`, `gpu/bbgpu.h` und
@@ -17,31 +17,32 @@ unverändert grün.
 | ID | Beschreibung | Modell | Status |
 |---|---|---|---|
 | P0 | Branch, Toolchain-Bestand, shadPS4-Referenz + Worktree b4e7ae7, Metrik-Werkzeug, Baseline | O (+S Toolchain-Bestand, S Paketrecherche) | done |
-| P1 | U1, U2, Architektur, Schnittstellen-Header, Plan | O | review (wartet auf Freigabe) |
+| P1 | U1, U2, Architektur, Schnittstellen-Header, Plan | O | done (Freigabe 2026-10-13) |
 
 ### Welle 1 – Fundament
 | ID | Beschreibung | Besessene Dateien | Abhängig von | Abnahme | Umfang | Modell | Status |
 |---|---|---|---|---|---|---|---|
-| F1 | Schnittstellen nach Review einfrieren (IF-2) | `src/platform/pf_*.h`, INTERFACES.md | P1 | Header kompilieren C11/C++23, beide Zweige; Protokoll aktualisiert | S | O | blocked (Freigabe) |
-| F2 | Windows-Stubs für alle pf_*-Funktionen + `pf_common.c` | `src/platform/pf_common.c`, `src/platform/pf_*_win32.c` (Übergabe an K1/K4/K6/K7/R2/R3, sobald diese starten) | F1 | Jede Funktion vorhanden, Rückgabe `PF_ENOSYS` + Meldung; `tests/refueled/test_stubs.c` ruft alle auf | S | S | blocked |
+| F1 | Schnittstellen nach Review einfrieren (IF-2) | `src/platform/pf_*.h`, INTERFACES.md | P1 | Header kompilieren C11/C++23, beide Zweige; Protokoll aktualisiert | S | O | done (IF-2) |
+| F2 | Windows-Stubs für alle pf_*-Funktionen + `pf_common.c` | `src/platform/pf_common.c`, `src/platform/pf_*_win32.c` (Übergabe an K1/K4/K6/K7/R2/R3, sobald diese starten) | F1 | Jede Funktion vorhanden, Rückgabe `PF_ENOSYS` + Meldung; `tests/refueled/test_stubs.c` ruft alle auf | S | S | ready |
 | F3 | Windows-Build: `build-windows.sh` (MSYS2 CLANG64) für Plattformschicht + `WIN32_SOURCES.txt` + Testprogramme; Flags `-std=c11 -D_GNU_SOURCE -D_FILE_OFFSET_BITS=64 -include pf_posix_gap_win32.h -gcodeview`, `-Wl,--disable-high-entropy-va,--pdb=` | `build-windows.sh`, `src/platform/WIN32_SOURCES.txt`, `tests/refueled/test_stubs.c` | F2, Toolchain | `bash build-windows.sh --test` grün in CLANG64 | M | S | blocked (Toolchain) |
 | F4 | Linux-Build nimmt Plattformquellen auf (`src/platform/pf_*_linux.c`, `pf_common.c` in `runtime=` von build.sh), sonst nichts | `build.sh` | F1, F8 | `build.sh --test` in WSL grün; `out/sacredfire` startet `--list-imports` wie vorher (Ausgabe-Diff leer) | S | S | blocked (WSL-Umgebung) |
 | F5 | GPU-CMake-Zweig für Windows (`if(WIN32)`: STATIC, ohne X11/`--allow-shlib-undefined`/`-ftls-model`, miniz/magic_enum/xbyak über `tools/deps-windows.sh`) | `gpu/CMakeLists.txt`, `tools/deps-windows.sh` | F1, Toolchain | `cmake -S gpu` konfiguriert in CLANG64; Linux-Konfiguration bitgleich (CMakeCache-Diff der Linux-Optionen leer) | M | S | blocked (Toolchain) |
 | F6 | POSIX-Teilmenge auf Windows prüfen + Lücken schließen | `src/platform/pf_posix_gap_win32.h/.c`, `tests/refueled/test_posix_subset.c` | F3 | Test deckt jede (P)-Zeile in INTERFACES.md §2 ab, grün auf beiden Plattformen | M | S | blocked |
 | F7 | ABI-Verifikation: Asm-"Gast"-Aufrufer gegen `ABI`-Funktionen; Audit Host→Gast-Aufrufe ohne ABI in src/, gpu/shim, bbport-Zeilen | `tests/refueled/test_sysv_abi.c`, `tests/refueled/sysv_caller.S`, `docs/refueled/audit/ABI.md` | F3 | Test grün auf Windows (Register-/Stack-Args, Float, sret, Callback, Ausrichtung, xmm6–15); Audit-Liste vollständig mit Datei:Zeile | M | S | blocked |
-| F8 | Linux-Regressionsumgebung in WSL (nach deiner Entscheidung Nix/apt) + Skript | `docs/refueled/tools/linux-regress.sh` | Freigabe Installation | Skript baut den **unveränderten** Stand f1f7935 und protokolliert `build.sh --test` + Python-Tests als Referenz | S | S | blocked (Freigabe) |
-| F9 | Audit Low-Heap: alle Host-Allokationen, deren Adresse der Gast sieht | `docs/refueled/audit/LOWHEAP.md` | P1 | Liste Datei:Zeile + Begründung; Opus bestätigt | S | S | ready nach Freigabe |
-| F10 | Audit LLP64: `long`, `off_t`, `time_t`, `struct timespec`, `wchar_t`, `ssize_t` in Gast-Strukturen und ABI-Signaturen | `docs/refueled/audit/LLP64.md` | P1 | Liste + Fix-Vorschlag je Stelle | S | S | ready nach Freigabe |
+| F8 | Linux-Regressionsumgebung in WSL (nach deiner Entscheidung Nix/apt) + Skript | `docs/refueled/tools/linux-regress.sh` | Freigabe Installation | Skript baut den **unveränderten** Stand f1f7935 und protokolliert `build.sh --test` + Python-Tests als Referenz | S | S | blocked (Nix-Installation durch PL; Skript vorab schreibbar) |
+| F9 | Audit Low-Heap: alle Host-Allokationen, deren Adresse der Gast sieht | `docs/refueled/audit/LOWHEAP.md` | P1 | Liste Datei:Zeile + Begründung; Opus bestätigt | S | S | ready |
+| F10 | Audit LLP64: `long`, `off_t`, `time_t`, `struct timespec`, `wchar_t`, `ssize_t` in Gast-Strukturen und ABI-Signaturen | `docs/refueled/audit/LLP64.md` | P1 | Liste + Fix-Vorschlag je Stelle | S | S | ready |
+| LH | **Low-Heap unter 1 TiB** (eigenes Paket, Freigabe 2026-10-13): plattformneutraler Allokator auf einem übergebenen Bereich (calloc/aligned_alloc/free, Mutex, Größen-Header, Freiliste mit Verschmelzen, Assertion "Zeiger < 1 TiB"), Windows-`pf_low_*` darauf, Linux-`pf_low_*` = calloc/aligned_alloc/free | `src/platform/pf_lowheap.c`, `src/platform/pf_lowheap.h` (intern, nur src/platform), `src/platform/pf_lowheap_linux.c`, `src/platform/pf_lowheap_win32.c`, `tests/refueled/test_lowheap.c` | F1 | Test auf Linux (WSL gcc) und Windows: Ausrichtung 16…64 KiB, Nullen, Wiederverwendung nach free, Verschmelzen, Erschöpfung → NULL, 8 Threads parallel, alle Zeiger im Bereich | M | S | ready |
 
 ### Kritischer Pfad (Runtime-Kern)
 | ID | Beschreibung | Besessene Dateien | Abhängig von | Abnahme | Umfang | Modell | Status |
 |---|---|---|---|---|---|---|---|
-| K1 | **pf_memory Windows**: Layout-Platzhalter, Section, feste Sichten mit Split/Coalesce, Schutz, Nullen, lazy, Low-Heap, sicheres Lesen | `src/platform/pf_memory_win32.c`, `tests/refueled/test_memory.c` | F2, F3 | Test: Aliasing zweier Sichten, Ersetzen, Teil-Unmap + Neu-Map bei 16 KiB, Schutz/Fault, Nullen, erste low-Allokation = 0x800000000, Low-Heap < 1 TiB | L | O | blocked |
+| K1 | **pf_memory Windows**: Layout-Platzhalter, Section, feste Sichten mit Split/Coalesce, Schutz, Nullen, lazy, Low-Heap, sicheres Lesen | `src/platform/pf_memory_win32.c`, `tests/refueled/test_memory.c` | F2, F3 | Test: Aliasing zweier Sichten, Ersetzen, Teil-Unmap + Neu-Map bei 16 KiB, Schutz/Fault, Nullen, erste low-Allokation = 0x800000000, Low-Heap < 1 TiB (Allokator aus LH) | L | O | in_progress (Code + Test vorab, Zwischenprüfung MSVC) |
 | K2 | **pf_memory Linux** (verschobener Code) + Umstellung `runtime_memory.c` (mmap/memfd/fallocate/mprotect → pf_*, PROT → PF_PROT, Chunk-fd → PfMemHandle, `#ifdef _WIN32`-Rest entfernen, Layout-Reservierung + Low-Heap-Init) | `src/runtime_memory.c`, `src/platform/pf_memory_linux.c` | F1, F4, F10 | Linux: Tests grün, Meldungstexte identisch, Zeilenvergleich alt/neu im Log; Windows: `runtime_memory.c` kompiliert | M | S | blocked |
 | K3 | **Loader** `probe.c`: allocate/protect → pf_vm, Fault-Kette → pf_fault_add_handler, Bericht → pf_symbolize/pf_describe_mapping/pf_backtrace, Watchdog → pf_watchdog_start + pf_thread_sample, Neustart, `enter_on_stack` → pf_call_guest_on_stack, mallopt → pf_init, `pf_tls_patch_image`; `_WIN32`-Zweige raus | `src/probe.c`, `src/runtime.h` | K2, F1 | Linux: `--list-imports`-Ausgabe identisch, Fault-Bericht-Format identisch; Windows: kompiliert | M | O | blocked |
 | K4 | **pf_tls Windows**: Slot, Set/Get, Patch-Scanner | `src/platform/pf_tls_win32.c`, `tests/refueled/test_tls.c` | F2, F3 | Test: synthetischer Code mit `gs:[0]`-Load liefert nach Patch den gesetzten TCB, in 2 Threads verschieden | S | O | blocked |
 | K5 | **Threads Linux** (verschobener Code) + Umstellung `runtime_thread.c` (set_gs → pf_tls, Stack → pf_thread_create_on_stack, Namen, IDs, setjmp → pf_setjmp, calloc/aligned_alloc → pf_low_*) | `src/runtime_thread.c`, `src/platform/pf_thread_linux.c`, `src/platform/pf_tls_linux.c` | F1, F4, F9 | Linux: Tests grün (test_runtime, test_sema, test_eventflag); Windows: kompiliert | M | S | blocked |
-| K6 | **pf_thread Windows** + Asm (Stackwechsel mit TEB-Grenzen, Gast-Aufruf, pf_setjmp/longjmp), Sampling, Thread-Liste, Namen, CPU-Zeit, Priorität | `src/platform/pf_thread_win32.c`, `src/platform/pf_stack_win32.S`, `src/platform/pf_jmp_win32.S`, `tests/refueled/test_thread.c` | F2, F3 | Test: Thread auf low-Stack mit >64 KiB Rahmen (`__chkstk`), Ausnahme auf Gast-Stack wird behandelt, pf_longjmp aus tiefer Rekursion, Sampling liest RIP eines laufenden Threads | L | O | blocked |
+| K6 | **pf_thread Windows** + Asm (Stackwechsel mit TEB-Grenzen, Gast-Aufruf, pf_setjmp/longjmp), Sampling, Thread-Liste, Namen, CPU-Zeit, Priorität | `src/platform/pf_thread_win32.c`, `src/platform/pf_stack_win32.S`, `src/platform/pf_jmp_win32.S`, `tests/refueled/test_thread.c` | F2, F3, LH | Test: Thread auf low-Stack mit >64 KiB Rahmen (`__chkstk`), Ausnahme auf Gast-Stack wird behandelt, pf_longjmp aus tiefer Rekursion, Sampling liest RIP eines laufenden Threads | L | O | blocked |
 | K7 | **pf_exception Windows**: VEH-Dispatcher, PfContext, Breakpoint-RIP-Normalisierung, Resume, Watchdog-Thread, exit_now | `src/platform/pf_exception_win32.c`, `tests/refueled/test_exception.c` | K6 (pf_jmp) | Test: Schreib-Fault auf geschützter Seite → Handler hebt Schutz auf → Fortsetzung; Rücksprung; int3; Einzelschritt; unbehandelt → Prozessende mit Code | M | O | blocked |
 | K8 | **pf_exception/pf_log Linux** (verschobener Code: sigaction-Dispatcher mit gleichen Flags, resume = siglongjmp, alarm/SIGALRM, Sampling per tgkill+Signal) | `src/platform/pf_exception_linux.c`, `src/platform/pf_log_linux.c`, `tests/refueled/test_exception.c` (gemeinsam mit K7: Linux-Teil) | F1, F4 | Linux: Test grün; Watchdog-Ausgabe im alten Format | M | S | blocked |
 | M1 | **Meilenstein 1**: Windows-Build Runtime + Loader; `--list-imports` mit dem Spiel; Image bei 0x800000000 | – (nur Integration) | K1, K2, K3, F6, F7, T2 | Log-Belege: "Mapped … bytes" bei 0x800000000, Import-Zusammenfassung identisch zur Linux-Referenz | – | O | blocked |
@@ -75,7 +76,7 @@ unverändert grün.
 ### Später / bei Bedarf
 | ID | Beschreibung | Abhängig von | Umfang | Modell | Status |
 |---|---|---|---|---|---|
-| RZ | Red-Zone-Schutz (shadPS4 StaticPatching portieren) | Auslöser laut D17 | L | O+S | blocked (Reserve) |
+| RZ | Red-Zone-Schutz (shadPS4 `WindowsGuestRedZoneProtection` portieren), Schalter `BB_REDZONE=0/1`; **eingeplant, fertig spätestens vor M3** (Freigabe 2026-10-13); ab M2 jeder unerklärliche Absturz zuerst RZ an/aus A/B | K3, K7 | L | O+S | blocked |
 | D1 | Bauanleitung Windows `docs/refueled/BUILD-WINDOWS.md` | M2 | S | S | blocked |
 | P2 | Paketierung Windows (zip: exe + DLLs + Lizenzen) | M3 | M | S | blocked |
 | P3 | Launcher unter Windows (GTK4-Python oder Alternative, eigene Entscheidung) | M4 | M | S | blocked |
@@ -138,6 +139,16 @@ unter MinGW ist der größte unbekannte Block. Startet er spät, wird er zum kri
 
 ## 3. Wellen und Auslastung
 
+**Ab 2026-10-13:** keine feste Obergrenze für Agenten mehr. Ein Agent arbeitet nach Abschluss
+direkt das nächste `ready`-Paket ab (fortsetzen statt neu starten); neue Agenten nur, wenn
+parallel startbare Pakete sonst warten würden. Priorität: 1 kritischer Pfad, 2 G2/G3,
+3 Pakete mit den meisten Folgepaketen, 4 Rest. Die Tabelle unten bleibt als Richtwert.
+
+**Zwischenprüfung ohne CLANG64** (solange MSYS2 fehlt): Plattform-neutraler Code und
+Linux-Zweige mit gcc 13 in WSL (`-fsyntax-only` bzw. Test), Windows-Code, der nur Win32-API
+braucht (K1, K4, LH), mit MSVC 14.44 aus den vorhandenen VS Build Tools. Das ersetzt nicht
+die Abnahme in CLANG64 (F3), verkürzt sie aber.
+
 Annahme: maximal **6 Sonnet-Agenten gleichzeitig** (jeder GPU-Build braucht mehrere GB RAM,
 24 Threads / 31 GB). Dazu Opus. Warteschlange nach Priorität: kritischer Pfad → fast kritisch →
 Anzahl freigeschalteter Pakete.
@@ -165,7 +176,7 @@ Nach jedem Merge: Metrik → METRICS.md.
 | Dateikonflikte | Wartezeit/Merges | feste Besitzer je Datei; `runtime.h`/`bbgpu.h`/Header nur Opus, Bedarf per Rückmeldung |
 | Review-Stau bei Opus | Sonnet-Agenten warten | Pakete liefern Diff + Log; Opus reviewt in der Reihenfolge der Warteschlange, kritische zuerst |
 
-## 4. Agenten-Budget (max. 50 Sub-Agenten gesamt)
+## 4. Agenten-Budget (bis 2026-10-12; ab Phase 2 aufgehoben, siehe §3)
 
 | Zweck | Agenten |
 |---|---|

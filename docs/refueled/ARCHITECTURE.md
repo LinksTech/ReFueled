@@ -1,6 +1,6 @@
 # ReFueled – Architektur des Windows-Ports
 
-Stand 2026-10-12 (Phase 1, zur Freigabe). Basis: Branch `refueled/windows` ab f1f7935
+Stand 2026-10-13 (Phase 2 freigegeben, Freigaben in §4 D1, D10, D15, D17 eingetragen). Basis: Branch `refueled/windows` ab f1f7935
 (= Tag v0.2.1 + 7 Zeilen STATUS.md). Lizenz GPL-2.0-or-later wie SacredFire.
 
 Zugehörig: [U1-SPEICHER.md](U1-SPEICHER.md), [U2-SIGNALE-THREADS.md](U2-SIGNALE-THREADS.md),
@@ -63,6 +63,11 @@ docs/refueled/tools/      linux_hits.py (Metrik), linux-regress.sh (WSL)
 ## 4. Entscheidungen
 
 ### D1 Toolchain: MSYS2 CLANG64 (Option A), Begründung mit Zahlen
+
+**Freigegeben 2026-10-13 (Projektleitung).** Abbruchkriterium für die shadPS4-Kopie: Kompiliert G2/G3
+nach zwei Fix-Runden unter MinGW nicht **oder** stürzt die GPU-Bibliothek beim ersten
+Vulkan-Init ab, wechselt **nur die GPU-Bibliothek** auf clang-cl (Rückfallposition unten).
+Opus entscheidet und meldet die Begründung an die Projektleitung.
 
 Basis: Metrik `docs/refueled/tools/linux_hits.py` (siehe METRICS.md), Umfang eigener Code +
 bbport-Zeilen in `gpu/shadps4`.
@@ -135,6 +140,10 @@ Unwind-Info.
 ### D10 Gast-sichtbare Host-Objekte unter 1 TiB
 Linux: unverändert (brk-Heap + mallopt, `-no-pie`). Windows: Low-Heap im low-Bereich
 (`pf_low_*`) und `-Wl,--disable-high-entropy-va`. Audit F9 findet alle betroffenen Allokationen.
+**Freigabe 2026-10-13:** Der Low-Heap ist ein eigenes Paket (LH), K6 hängt davon ab. Der
+Allokator selbst ist plattformneutral (`src/platform/pf_lowheap.c`, arbeitet auf einem
+übergebenen Adressbereich) und wird so auch auf Linux getestet; Windows legt den Bereich mit
+`pf_vm_alloc_fixed` im low-Bereich an. Linux leitet `pf_low_*` weiter an calloc/aligned_alloc/free.
 
 ### D11 GPU-Bibliothek auf Windows statisch gelinkt
 Unter Linux löst `libbbgpu.so` Runtime-Symbole aus der Exe auf (`--allow-shlib-undefined`,
@@ -157,7 +166,8 @@ Herkunft gekennzeichnet (shadPS4-Commit).
 ### D15 Linux-Regression in WSL2
 Ubuntu 24.04 ist vorhanden, aber ohne cmake, pkg-config, Vulkan-Header und SDL3. Vorschlag:
 Nix (single-user) in WSL. `build.sh` springt dann selbst in `nix-shell shell.nix`, das ist die
-Upstream-Umgebung. Alternative: apt-Pakete + SDL3 aus Quellen. **Braucht Freigabe (Installation).**
+Upstream-Umgebung. Alternative: apt-Pakete + SDL3 aus Quellen.
+**Freigegeben 2026-10-13: Nix aus `shell.nix`.** Installation macht die Projektleitung (TOOLCHAIN.md §3).
 
 ### D16 Issue #2 (überschriebenes Dword) nicht jagen
 `BB_ASYNC_PIPELINES` bleibt aus. Tritt `SacredFire issue #2:` im Windows-Log auf, wird es mit
@@ -165,6 +175,9 @@ Logauszug in `docs/refueled/ISSUE2-WINDOWS.md` notiert, ohne Port-Fehlersuche.
 
 ### D17 Red Zone: zunächst ohne Schutz, Paket RZ in Reserve
 Siehe U2 §2. Auslöser für RZ: Gast-Abstürze oder Datenfehler, die mit Faults korrelieren.
+**Freigabe 2026-10-13:** RZ ist eingeplant (nicht kritischer Pfad), fertig spätestens vor M3,
+als Schalter `BB_REDZONE=0/1` (Umgebungsvariable, Standard bis zur Messung: 0). **Ab M2 wird
+jeder unerklärliche Absturz zuerst mit RZ an/aus A/B getestet**, bevor andere Fehlersuche beginnt.
 
 ### D18 Sprache
 Dokumente unter `docs/refueled/` deutsch, Code und Kommentare englisch (wie der übrige Code).
