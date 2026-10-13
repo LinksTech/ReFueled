@@ -11,21 +11,10 @@
 #if !defined(__x86_64__) || !defined(__GNUC__)
 #error This prototype requires x86-64 GCC or Clang (including MinGW).
 #endif
-#ifdef _WIN32
-#include <windows.h>
-#else
-#include <sys/mman.h>
-#include <malloc.h>
 #include <unistd.h>
-#include <signal.h>
-#include <ucontext.h>
-#include <fcntl.h>
-#include <dlfcn.h>
-#include <execinfo.h>
-#include <pthread.h>
-#include <sys/syscall.h>
-#include <sys/uio.h>
-#endif
+/* refueled: the host facilities the loader needs (memory, faults, watchdog, threads, symbols, restart)
+ * come from the platform layer, src/platform/pf_*.h (docs/refueled/ARCHITECTURE.md). */
+#include "platform/platform.h"
 
 typedef struct { uint64_t address, size, flags; } Segment;
 typedef struct { uint64_t target, kind, value, addend; } Reloc;
@@ -86,31 +75,15 @@ static uint64_t read64(FILE *f) {
 }
 static size_t round_page(size_t size) { return (size + page_size - 1) & ~(page_size - 1); }
 static void *allocate(size_t size) {
-#ifndef _WIN32
-    void *low=runtime_low_map(size,PROT_READ|PROT_WRITE);
+    void *low=runtime_low_map(size,PF_PROT_READ|PF_PROT_WRITE);
     if (low) return low;
-#endif
-#ifdef _WIN32
-    void *p = VirtualAlloc(NULL, size, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
-    if (!p) fail("VirtualAlloc failed");
-#else
-    void *p = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
-    if (p == MAP_FAILED) fail("mmap failed");
-#endif
+    void *p = pf_vm_alloc(size, PF_PROT_READ | PF_PROT_WRITE);
+    if (!p) fail("mmap failed");
     return p;
 }
 static void protect(void *p, size_t size, unsigned flags) {
-#ifdef _WIN32
-    DWORD old, mode = PAGE_NOACCESS;
-    if (flags & 1) mode = (flags & 2) ? PAGE_EXECUTE_READWRITE : PAGE_EXECUTE_READ;
-    else if (flags & 2) mode = PAGE_READWRITE;
-    else if (flags & 4) mode = PAGE_READONLY;
-    if (!VirtualProtect(p, size, mode, &old)) fail("VirtualProtect failed");
-    FlushInstructionCache(GetCurrentProcess(), p, size);
-#else
-    int mode = ((flags & 4) ? PROT_READ : 0) | ((flags & 2) ? PROT_WRITE : 0) | ((flags & 1) ? PROT_EXEC : 0);
-    if (mprotect(p, size, mode)) fail("mprotect failed");
-#endif
+    int mode = ((flags & 4) ? PF_PROT_READ : 0) | ((flags & 2) ? PF_PROT_WRITE : 0) | ((flags & 1) ? PF_PROT_EXEC : 0);
+    if (pf_vm_protect(p, size, mode)) fail("mprotect failed");
 }
 static ABI __attribute__((noreturn)) void unresolved(uint32_t id, uintptr_t argument) {
     if (id >= import_count) fail("bad import trap index");
@@ -128,122 +101,106 @@ static ABI __attribute__((noreturn)) void unresolved(uint32_t id, uintptr_t argu
     fflush(NULL);
     _exit(20); /* no destructors: GPU, audio and guest threads are still running */
 }
-#ifndef _WIN32
-/* enter_on_stack(entry, arg0, arg1, stack_top): call entry(arg0,arg1) on a new stack. */
-void enter_on_stack(void *entry, void *arg0, void *arg1, void *top);
-__asm__(".text\n.globl enter_on_stack\nenter_on_stack:\n"
-        " push %rbp\n mov %rsp,%rbp\n and $-16,%rcx\n mov %rcx,%rsp\n"
-        " mov %rdi,%rax\n mov %rsi,%rdi\n mov %rdx,%rsi\n call *%rax\n"
-        " mov %rbp,%rsp\n pop %rbp\n ret\n");
-#endif
 static ABI void guest_exit(void) { puts("Runtime: process finalizer callback reached"); }
-#ifndef _WIN32
-static void fault(int sig, siginfo_t *info, void *context) {
+/* Frames of the host call chain before the faulting code: pf_backtrace, fault, the dispatcher and the
+ * signal trampoline (Linux) / exception dispatch (Windows). The numbering below keeps the old one
+ * (#2 = the first frame after the trampoline, as with backtrace() called in the signal handler). */
+#define FAULT_FRAMES_SKIPPED 4
+/* Access, bus and illegal-instruction faults, in the order the old signal handler checked them:
+ * GPU page tracking, recovery points of speculative reads, then the fatal report. */
+static PfFaultResult fault(const PfFault *info, PfContext *context, void *user) {
+    (void)user;
+    const int sig = info->host_code;
     /* GPU page tracking (write-protected guest pages) is resolved first. */
-    if (gpu_enabled && sig == SIGSEGV && bbgpu_handle_fault(context, info->si_addr)) return;
+    if (gpu_enabled && info->kind == PF_FAULT_ACCESS && bbgpu_handle_fault(context, (void *)info->address)) return PF_FAULT_HANDLED;
     /* A speculative guest memory read (runtime_memory.c) failed: resume its recovery point. */
-    if ((sig == SIGSEGV || sig == SIGBUS) && runtime_fault_recover) {
-        sigjmp_buf *recover = runtime_fault_recover;
+    if ((info->kind == PF_FAULT_ACCESS || info->kind == PF_FAULT_BUS) && runtime_fault_recover) {
+        pf_sigjmp_buf *recover = runtime_fault_recover;
         runtime_fault_recover = NULL;
-        sigset_t unblock;
-        sigemptyset(&unblock);
-        sigaddset(&unblock, sig);
-        pthread_sigmask(SIG_UNBLOCK, &unblock, NULL);
-        siglongjmp(*recover, 1);
+        return pf_fault_resume_at(context, *recover, 1);
     }
-    /* The process is terminating: dladdr/snprintf are acceptable here. */
-    ucontext_t *uc = context;
-    uintptr_t rip = (uintptr_t)uc->uc_mcontext.gregs[REG_RIP];
+    /* The process is terminating: symbol lookups and snprintf are acceptable here. */
+    uintptr_t rip = (uintptr_t)pf_context_get(context, PF_REG_RIP);
     char line[512];
-    Dl_info where;
+    PfSymbol where;
     if (rip - (uintptr_t)image < 0x10000000)
-        snprintf(line, sizeof(line), "Guest fault (signal %d) at guest offset 0x%lx, address %p\n",
-                 sig, (unsigned long)(rip - (uintptr_t)image), info->si_addr);
-    else if (dladdr((void *)rip, &where) && where.dli_fname)
-        snprintf(line, sizeof(line), "Host fault (signal %d) in %s+0x%lx (%s), address %p\n", sig, where.dli_fname,
-                 (unsigned long)(rip - (uintptr_t)where.dli_fbase), where.dli_sname ? where.dli_sname : "?", info->si_addr);
+        snprintf(line, sizeof(line), "Guest fault (signal %d) at guest offset 0x%" PRIx64 ", address %p\n",
+                 sig, (uint64_t)(rip - (uintptr_t)image), (void *)info->address);
+    else if (pf_symbolize(rip, &where) == 0)
+        snprintf(line, sizeof(line), "Host fault (signal %d) in %s+0x%" PRIx64 " (%s), address %p\n", sig, where.module,
+                 (uint64_t)(rip - where.module_base), where.symbol[0] ? where.symbol : "?", (void *)info->address);
     else
-        snprintf(line, sizeof(line), "Fault (signal %d) at RIP %p, address %p\n", sig, (void *)rip, info->si_addr);
-    { ssize_t written_=write(2, line, strlen(line)); (void)written_; }
+        snprintf(line, sizeof(line), "Fault (signal %d) at RIP %p, address %p\n", sig, (void *)rip, (void *)info->address);
+    pf_write_stderr_str(line);
     if (gpu_enabled) bbgpu_dump_guest_writes(context);
-    /* Outside the image and any shared object (generated code, a freed mapping): the mapping
-     * from /proc/self/maps, and the thread. */
-    if (rip - (uintptr_t)image >= 0x10000000 && !(dladdr((void *)rip, &where) && where.dli_fname)) {
+    /* Outside the image and any module (generated code, a freed mapping): the mapping of RIP
+     * (Linux: its /proc/self/maps line), and the thread. */
+    if (rip - (uintptr_t)image >= 0x10000000 && pf_symbolize(rip, &where) != 0) {
         char thread[32] = "?";
-        pthread_getname_np(pthread_self(), thread, sizeof(thread));
+        pf_thread_get_name(thread, sizeof(thread));
         snprintf(line, sizeof(line), "  thread %s; mapping of RIP: ", thread);
-        { ssize_t written_=write(2, line, strlen(line)); (void)written_; }
-        FILE *maps = fopen("/proc/self/maps", "r");
-        int found = 0;
-        while (maps && fgets(line, sizeof(line), maps)) {
-            unsigned long from, to;
-            if (sscanf(line, "%lx-%lx", &from, &to) == 2 && rip >= from && rip < to) {
-                ssize_t written_=write(2, line, strlen(line)); (void)written_;
-                found = 1;
-                break;
-            }
+        pf_write_stderr_str(line);
+        if (pf_describe_mapping(rip, line, sizeof(line) - 1) == 0) {
+            pf_write_stderr_str(line);
+            pf_write_stderr_str("\n");
+        } else {
+            pf_write_stderr_str("none\n");
         }
-        if (maps) fclose(maps);
-        if (!found) { ssize_t written_=write(2, "none\n", 5); (void)written_; }
     }
     /* Host call chain (frames with unwind info; guest frames end it). */
-    void *frames[32];
-    int depth = backtrace(frames, 32);
-    for (int i = 2; i < depth; ++i) {
-        if (dladdr(frames[i], &where) && where.dli_fname)
-            snprintf(line, sizeof(line), "  #%d %s+0x%lx (%s)\n", i, where.dli_fname,
-                     (unsigned long)((uintptr_t)frames[i] - (uintptr_t)where.dli_fbase), where.dli_sname ? where.dli_sname : "?");
+    void *frames[32 + FAULT_FRAMES_SKIPPED - 2];
+    int depth = pf_backtrace(frames, (int)(sizeof(frames) / sizeof(*frames)));
+    for (int i = FAULT_FRAMES_SKIPPED; i < depth; ++i) {
+        const int number = i - FAULT_FRAMES_SKIPPED + 2;
+        if (pf_symbolize((uintptr_t)frames[i], &where) == 0)
+            snprintf(line, sizeof(line), "  #%d %s+0x%" PRIx64 " (%s)\n", number, where.module,
+                     (uint64_t)((uintptr_t)frames[i] - where.module_base), where.symbol[0] ? where.symbol : "?");
         else
-            snprintf(line, sizeof(line), "  #%d %p\n", i, frames[i]);
-        ssize_t written_=write(2, line, strlen(line)); (void)written_;
+            snprintf(line, sizeof(line), "  #%d %p\n", number, frames[i]);
+        pf_write_stderr_str(line);
     }
-    _exit(128 + sig);
+    /* Linux: 128 + signal number, as before; Windows: the exception code. */
+    pf_exit_now(sig > 0 && sig < 64 ? 128 + sig : sig);
 }
-#endif
 /* Watchdog: dump RIP and the rbp frame chain of every thread (guest offsets
- * when inside the image). Reads use process_vm_readv so bad frames cannot fault. */
+ * when inside the image). Reads use pf_read_memory_safe so bad frames cannot fault. */
 static uintptr_t exe_base;
 static void write_hex(char *out, uint64_t v) {
     const char digits[] = "0123456789abcdef";
     for (int i = 0; i < 16; ++i) out[i] = digits[(v >> (60 - i * 4)) & 15];
 }
-static void dump_frames(ucontext_t *uc) {
+static void dump_frames(const PfContext *context, uint64_t tid) {
     char line[] = "  tid=0000000000000000 rip=0000000000000000 image-relative=0000000000000000 host-relative=0000000000000000\n";
-    uintptr_t rip=(uintptr_t)uc->uc_mcontext.gregs[REG_RIP], rbp=(uintptr_t)uc->uc_mcontext.gregs[REG_RBP];
-    uint64_t tid=(uint64_t)gettid();
+    uintptr_t rip=(uintptr_t)pf_context_get(context,PF_REG_RIP), rbp=(uintptr_t)pf_context_get(context,PF_REG_RBP);
     /* First argument register: the lock address when a thread waits on a futex. */
     char arg[]="  tid=0000000000000000 rdi=0000000000000000\n";
-    write_hex(arg+6,tid); write_hex(arg+27,(uint64_t)uc->uc_mcontext.gregs[REG_RDI]);
-    { ssize_t written_=write(2,arg,sizeof(arg)-1); (void)written_; }
+    write_hex(arg+6,tid); write_hex(arg+27,pf_context_get(context,PF_REG_RDI));
+    pf_write_stderr(arg,sizeof(arg)-1);
     for (int depth=0; depth<24; ++depth) {
         write_hex(line+6,tid); write_hex(line+27,rip); write_hex(line+59,rip-(uintptr_t)image); write_hex(line+90,rip-exe_base);
-        { ssize_t written_=write(2,line,sizeof(line)-1); (void)written_; }
+        pf_write_stderr(line,sizeof(line)-1);
         uintptr_t frame[2];
-        struct iovec local={frame,sizeof(frame)}, remote={(void *)rbp,sizeof(frame)};
-        if (!rbp || process_vm_readv(getpid(),&local,1,&remote,1,0)!=(ssize_t)sizeof(frame)) break;
+        if (!rbp || pf_read_memory_safe(frame,rbp,sizeof(frame))!=(int64_t)sizeof(frame)) break;
         if (frame[0]<=rbp) break;
         rbp=frame[0]; rip=frame[1];
     }
 }
-static void thread_dump(int sig, siginfo_t *info, void *context) { (void)sig; (void)info; dump_frames(context); }
-static void watchdog(int sig, siginfo_t *info, void *context) {
-    (void)info;
+/* pf_thread_sample: the stopped thread's registers (Linux: on that thread, as the SIGUSR2 handler
+ * that this replaces; Windows: suspended, read from the watchdog thread). */
+static void dump_sampled(const PfContext *context, void *user) { dump_frames(context, *(const uint64_t *)user); }
+static void dump_other(uint64_t tid, const char *name, void *self) {
+    (void)name;
+    if (tid && tid != *(const uint64_t *)self) pf_thread_sample(tid, dump_sampled, &tid);
+}
+static void watchdog(PfContext *context, void *user) {
+    (void)user;
     const char head[]="STOP: watchdog timeout; thread stacks:\n";
-    { ssize_t written_=write(2,head,sizeof(head)-1); (void)written_; }
-    dump_frames(context);
-    int dir=open("/proc/self/task",O_RDONLY|O_DIRECTORY);
-    char buffer[4096];
-    long n;
-    pid_t self=gettid();
-    while (dir>=0 && (n=syscall(SYS_getdents64,dir,buffer,sizeof(buffer)))>0)
-        for (long at=0; at<n;) {
-            struct { uint64_t ino; int64_t off; unsigned short reclen; unsigned char type; char name[]; } *d=(void *)(buffer+at);
-            pid_t tid=(pid_t)strtol(d->name,NULL,10);
-            if (tid>0 && tid!=self) { syscall(SYS_tgkill,getpid(),tid,SIGUSR2); usleep(20000); }
-            at+=d->reclen;
-        }
-    usleep(100000);
-    _exit(128 + sig);
+    pf_write_stderr(head,sizeof(head)-1);
+    uint64_t self=pf_thread_id();
+    /* Linux: the context of the thread the alarm interrupted; Windows: none (timer thread). */
+    if (context) dump_frames(context,self);
+    pf_threads_list(dump_other,&self);
+    pf_exit_now(128 + 14); /* 128 + SIGALRM, the exit code of the Linux watchdog */
 }
 /* param.sfo lookup: string or integer value of key, 0 when absent. */
 static int sfo_value(const char *path, const char *key, char *text, size_t text_size, uint32_t *number) {
@@ -321,22 +278,19 @@ void runtime_restart(void) {
      * closed below, and an assertion there must not end the process (exit 23) before exec. */
     runtime_restarting = 1;
     __sync_synchronize();
-#ifndef _WIN32
-    syscall(SYS_close_range, 3u, ~0u, 0u);
-    execlp("bash", "bash", "run.sh", (char *)NULL);
+    pf_restart_through_launcher(); /* Linux: close_range(3, ~0) + execlp("bash", "run.sh") */
     perror("runtime_restart: exec");
     _exit(1);
-#endif
 }
 
 int main(int argc, char **argv) {
     setvbuf(stdout, NULL, _IONBF, 0);
-#ifndef _WIN32
-    /* Keep host heap objects handed to the guest (thread handles, TLS) in the
-       non-PIE brk heap, i.e. below 1 TiB: the guest packs pointers into 40 bits. */
-    mallopt(M_ARENA_MAX,1);
-    mallopt(M_MMAP_THRESHOLD,32*1024*1024);
-#endif
+    /* refueled: process set-up (Linux: the mallopt calls that keep guest-visible heap objects in
+     * the brk heap below 1 TiB; Windows: binary mode, fault dispatcher, TLS slot), then the guest
+     * address layout and the low heap, before anything maps guest memory: the image below is the
+     * first low allocation and lands at 0x800000000. */
+    if (pf_init()) fail("platform initialization failed");
+    if (runtime_memory_init_layout()) fail("cannot reserve the guest address layout");
     if (argc == 2 && !strcmp(argv[1], "--vulkan-only")) return vulkan_smoke();
     check_cpu();
     int cpu_only = 0, strict_imports = 0, list_imports = 0;
@@ -385,21 +339,15 @@ int main(int argc, char **argv) {
             runtime_savedata_configure(id);
     }
     bbgpu_register_kernel();
-#ifdef _WIN32
-    SYSTEM_INFO system_info; GetSystemInfo(&system_info); page_size = system_info.dwPageSize;
-#else
-    page_size = (size_t)sysconf(_SC_PAGESIZE);
-    struct sigaction sa = {0}; sa.sa_sigaction = fault; sa.sa_flags = SA_SIGINFO;
-    sigemptyset(&sa.sa_mask);
-    sigaction(SIGSEGV, &sa, NULL); sigaction(SIGILL, &sa, NULL); sigaction(SIGBUS, &sa, NULL);
-    Dl_info self_info;
-    if (dladdr((void *)main,&self_info)) exe_base=(uintptr_t)self_info.dli_fbase;
-    struct sigaction dump = {0}; dump.sa_sigaction = thread_dump; dump.sa_flags = SA_SIGINFO|SA_RESTART;
-    sigemptyset(&dump.sa_mask); sigaction(SIGUSR2, &dump, NULL);
-    struct sigaction alarm_action = {0}; alarm_action.sa_sigaction = watchdog; alarm_action.sa_flags = SA_SIGINFO;
-    sigemptyset(&alarm_action.sa_mask); sigaction(SIGALRM, &alarm_action, NULL);
-    alarm(timeout_seconds); /* 0 disables the watchdog */
-#endif
+    page_size = (size_t)pf_page_size();
+    /* First fault handler (D8): GPU tracking, recovery points, fatal report; the GPU library's
+     * diagnostic hooks register theirs in bbgpu_init. Linux: sigaction SA_SIGINFO for SIGSEGV,
+     * SIGILL and SIGBUS as before. */
+    if (pf_fault_add_handler((1u << PF_FAULT_ACCESS) | (1u << PF_FAULT_BUS) | (1u << PF_FAULT_ILLEGAL), fault, NULL))
+        fail("cannot install the fault handler");
+    exe_base = pf_executable_base();
+    /* The thread dump of the watchdog samples every thread itself (pf_thread_sample). */
+    if (pf_watchdog_start(timeout_seconds, watchdog, NULL)) fail("cannot start the watchdog"); /* 0 disables it */
     FILE *f = fopen(argv[1], "rb");
     if (!f) fail("cannot open boot file; run prepare.py first");
     char magic[8];
@@ -562,6 +510,15 @@ int main(int argc, char **argv) {
     }
     if (patch_file) apply_patches(patch_file, segments, ns, relocs, nr);
     if (!cpu_only) bbgpu_patch_image(image, size);
+    /* refueled: the boot file's GS-form thread-pointer loads (link_*.py) for this platform
+     * (Linux: counted only; Windows: rewritten to the TLS slot, pf_tls.h). */
+    {
+        PfCodeRange code[64];
+        size_t code_count = 0;
+        for (uint64_t i = 0; i < ns; ++i)
+            if (segments[i].flags & 1) code[code_count++] = (PfCodeRange){image + segments[i].address, segments[i].size};
+        if (pf_tls_patch_image(code, code_count) < 0) fail("cannot adapt the guest thread-pointer loads");
+    }
     protect(traps, round_page((import_count + 1) * 32), 5);
     protect(image, round_page(size), 0);
     int executable_entry = 0;
@@ -596,15 +553,10 @@ int main(int argc, char **argv) {
     printf("Entering original x86-64 code at guest offset 0x%" PRIx64 "\n", entry);
     entered_game=1;
     struct { uint64_t argc; const char *argv[2]; } params = {1, {"/app0/eboot.bin", NULL}};
-#ifdef _WIN32
-    typedef void (ABI *Entry)(void *, void (ABI *)(void));
-    ((Entry)(image + entry))(&params, guest_exit);
-#else
     /* The guest main thread runs on a stack below 1 TiB like PS4 stacks. */
     enum { MAIN_STACK=8*1024*1024 };
-    unsigned char *stack=runtime_low_map(MAIN_STACK,PROT_READ|PROT_WRITE);
+    unsigned char *stack=runtime_low_map(MAIN_STACK,PF_PROT_READ|PF_PROT_WRITE);
     if (!stack) fail("cannot allocate guest main stack");
-    enter_on_stack(image+entry,&params,(void *)guest_exit,stack+MAIN_STACK-64);
-#endif
+    pf_call_guest_on_stack(image+entry,(uint64_t)(uintptr_t)&params,(uint64_t)(uintptr_t)guest_exit,stack,stack+MAIN_STACK-64);
     fail("entry unexpectedly returned");
 }
