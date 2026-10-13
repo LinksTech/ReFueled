@@ -3,6 +3,17 @@
 #include <unistd.h>
 #include "../src/runtime_pad.c"
 
+#ifdef _WIN32
+#include <io.h>
+/* refueled: native Windows has no /tmp; use TMP/TEMP (mkstemp is provided by MinGW). */
+static void test_tmp_path(char *out, size_t cap, const char *name) {
+    const char *dir=getenv("TMP"); if(!dir||!*dir) dir=getenv("TEMP"); if(!dir||!*dir) dir=".";
+    snprintf(out,cap,"%s/%sXXXXXX",dir,name);
+}
+#else
+static void test_tmp_path(char *out, size_t cap, const char *name) { snprintf(out,cap,"/tmp/%sXXXXXX",name); }
+#endif
+
 static int capture;
 int bbgpu_overlay_captures_input(void) { return capture; }
 int bbgpu_pad_rescan_take(void) { return 0; }
@@ -20,13 +31,13 @@ static void inject(const char *path, const char *tokens) {
 }
 
 int main(void) {
-    char path[]="/tmp/bbport-pad-test-XXXXXX";
+    char path[512]; test_tmp_path(path,sizeof path,"bbport-pad-test-");
     int fd=mkstemp(path);
     assert(fd>=0);
     close(fd);
     setenv("BB_PAD_FILE",path,1);
     /* bbport.ini controls: buttons moved, a trigger as a button and a button as a trigger. */
-    char config[]="/tmp/bbport-pad-config-XXXXXX";
+    char config[512]; test_tmp_path(config,sizeof config,"bbport-pad-config-");
     int config_fd=mkstemp(config);
     assert(config_fd>=0);
     const char controls[]="upscaler=fsr3\npad.cross=b\npad.circle=a\npad.r2=rightshoulder\n"
