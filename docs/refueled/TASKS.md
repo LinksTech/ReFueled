@@ -80,9 +80,9 @@ mindestens ein Test; `docs/refueled/log/<ID>.md` mit alt↔neu-Tabelle für jede
 |---|---|---|---|---|---|
 | CI | Linux-Regression in GitHub Actions (vorbereitet, nicht aktiv) | `.github/workflows/linux-build.yml`, `docs/refueled/tools/linux-platform-tests.sh` | – | S | done (deferred-ci) |
 | IF-5…IF-9 | Schnittstellen: runtime.h/bbgpu.h auf pf_*, Layout-Init, Zugriffsart, pf_time.h, Zufall/CPU-Zeiten/CPU-Nummer, PfStat | Header + pf_*_linux/win32.c | – | O | done (MSVC-Läufe grün) |
-| R2c | runtime_file.c/runtime_savedata.c ohne Windows-Stub-Wände (PfStat, PF_DIRENT_TYPE) | diese zwei Dateien | IF-9, F6 | S | in_progress |
-| F3b | build-windows.sh baut sacredfire.exe (Runtime, Loader, LibAtrac9, GPU-Lib per CMake, UTF-8-Manifest, Link) | build-windows.sh, WIN32_SOURCES.txt, packaging/windows/* | F3, F5 | S | in_progress (ungetestet bis CLANG64) |
-| T2c | run-windows.sh (Ablauf wie run.sh, Löschschutz für den Spielordner, CRLF-feste ini-Abfragen) | run-windows.sh | T2a | S | in_progress |
+| R2c | runtime_file.c/runtime_savedata.c ohne Windows-Stub-Wände (PfStat, PF_DIRENT_TYPE) | diese zwei Dateien | IF-9, F6 | S | done als Code (Linux-Review); Kompilat CLANG64 offen |
+| F3b | build-windows.sh baut sacredfire.exe (Runtime, Loader, LibAtrac9, GPU-Lib per CMake, UTF-8-Manifest, Link) | build-windows.sh, WIN32_SOURCES.txt, packaging/windows/* | F3, F5 | S | done als Code (0733127); --keep-going-Zählmodus ergänzt; ungetestet bis CLANG64 |
+| T2c | run-windows.sh (Ablauf wie run.sh, Löschschutz für den Spielordner, CRLF-feste ini-Abfragen) | run-windows.sh | T2a | S | done (9bd1997; Selbsttest 11/11, BB_RESTART_COMMAND) |
 
 ### Später / bei Bedarf
 | ID | Beschreibung | Abhängig von | Umfang | Modell | Status |

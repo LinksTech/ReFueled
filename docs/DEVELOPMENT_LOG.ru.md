@@ -47,7 +47,8 @@
   `SPRJ0005/userdata0010` (хак rainvmaker из форка Diegolix29): с нулевым
   флагом часть звуков, например оружие игрока, не проигрывается.
   `BB_SOUND_HACK=0` отключает.
-  Профилирование без perf: загрузчик по SIGUSR2 печатает RIP, `rdi` (адрес
+  (refueled: с порта ReFueled обработчика SIGUSR2 больше нет, см.
+  docs/refueled/ARCHITECTURE.md D20.) Профилирование без perf: загрузчик по SIGUSR2 печатал RIP, `rdi` (адрес
   мьютекса при ожидании futex) и цепочку кадров потока; GPU-библиотека
   собирается с `-fno-omit-frame-pointer`.
 - **Диагностика**: `BB_FRAME_STATS=1` — FPS, худший кадр и время компиляции

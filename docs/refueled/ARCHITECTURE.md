@@ -1,6 +1,6 @@
 # ReFueled – Architektur des Windows-Ports
 
-Stand 2026-10-13 (Phase 2 freigegeben, Freigaben in §4 D1, D10, D17; Planänderung D19: kein WSL/Linux lokal). Basis: Branch `refueled/windows` ab f1f7935
+Stand 2026-10-13 (Phase 2 freigegeben, Freigaben in §4 D1, D10, D17; Planänderung D19: kein WSL/Linux lokal; D20: SIGUSR2-Abweichung). Basis: Branch `refueled/windows` ab f1f7935
 (= Tag v0.2.1 + 7 Zeilen STATUS.md). Lizenz GPL-2.0-or-later wie SacredFire.
 
 Zugehörig: [U1-SPEICHER.md](U1-SPEICHER.md), [U2-SIGNALE-THREADS.md](U2-SIGNALE-THREADS.md),
@@ -181,6 +181,30 @@ Opus prüft die Gleichheit beim Merge und vermerkt das im Paket-Log; (b)
 `.github/workflows/linux-build.yml` (Ubuntu-Runner, `build.sh --test`, Python-Tests,
 Plattformtests) ist vorbereitet und wird aktiv, sobald das GitHub-Repo existiert; (c)
 Linux-Prüfpakete haben in TASKS.md den Status `deferred-ci` und blockieren nichts.
+
+### D20 Linux: Thread-Dump des Watchdogs per Abtastung statt SIGUSR2 (bekannte Abweichung, akzeptiert 2026-10-13)
+**Was:** Bis K3 installierte `probe.c` einen SIGUSR2-Handler (`thread_dump`); der Watchdog
+(SIGALRM) schickte jedem anderen Thread per `tgkill` ein SIGUSR2, wartete je 20 ms und am Ende
+100 ms, und jeder Thread druckte seinen Dump selbst. Seit K3 (dec5cdc) liest der Watchdog jeden
+Thread über `pf_thread_sample` aus: unter Linux ein Echtzeitsignal SIGRTMIN+2 mit synchroner
+Antwort (Semaphore, höchstens 2 s je Thread), unter Windows SuspendThread/GetThreadContext.
+Format der Ausgabe, Reihenfolge und Exit-Code 142 (128 + SIGALRM) bleiben gleich.
+**Warum:** Windows hat keine Signale an einzelne Threads; ein gemeinsamer Mechanismus
+(`pf_thread_sample`, INTERFACES.md IF-2) dient Watchdog-Dump und SIGPROF-Sampler auf beiden
+Plattformen, ohne Plattform-`#ifdef` in `probe.c`.
+**Auswirkung (Linux):** (1) Kein SIGUSR2-Handler mehr: ein von außen gesendetes `kill -USR2`
+löst keinen Dump aus, sondern **beendet den Prozess** (Standardaktion von SIGUSR2). Damit entfällt
+das in `docs/DEVELOPMENT_LOG.ru.md` beschriebene "Profiling ohne perf" per SIGUSR2. (2) Beim
+Watchdog-Timeout wartet der Dump pro Thread bis zu 2 s statt 20 ms, wenn ein Thread das Signal
+blockiert; der Dump wird dafür vollständig statt zeitgesteuert. (3) SIGRTMIN+2 ist neu belegt
+(kollidiert laut Prüfung mit keinem Nutzer in bbport oder gpu/shadps4).
+**Rückgängig machen:** neue Funktion `pf_dump_signal_install(void (*dump)(PfContext *, void *),
+void *user)` in `pf_exception.h` (Schnittstelle über Opus, IF-Eintrag): Linux installiert damit
+den alten SIGUSR2-Handler (Code aus `git show dec5cdc~1:src/probe.c`, Zeilen 228 und 397–398),
+Windows ist ein No-op. `probe.c` ruft sie mit `dump_frames` auf. Die Abtastung im Watchdog kann
+bleiben. Aufwand etwa 30 Zeilen, ohne Auswirkung auf Windows.
+**Prüfung:** in CI (`.github/workflows/linux-build.yml`) als bekannte Abweichung vermerkt; ein
+Linux-Test, der SIGUSR2 erwartet, gibt es nicht.
 
 ### D16 Issue #2 (überschriebenes Dword) nicht jagen
 `BB_ASYNC_PIPELINES` bleibt aus. Tritt `SacredFire issue #2:` im Windows-Log auf, wird es mit

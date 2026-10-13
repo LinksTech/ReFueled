@@ -10,6 +10,11 @@
 #          --no-gpu          skip stages 4 and 6 (platform + runtime objects only)
 #          --skip-STAGE      skip one stage, STAGE = libpf, common, atrac9, gpu, resource, link
 #                            (a skipped stage uses what an earlier run left in out/win/)
+#          --keep-going      error census: compile every unit even after failures (all errors
+#                            per file, ninja -k 0), log each failure to out/win/census/ and group
+#                            the errors by package (docs/refueled/tools/census_group.py,
+#                            owners.txt) into out/win/census/summary.md; the link runs only when
+#                            every object built. Exit status 1 when anything failed.
 # The Linux build stays in build.sh.
 set -euo pipefail
 cd -- "$(dirname -- "$0")"
@@ -20,13 +25,15 @@ if [[ ${MSYSTEM:-} != CLANG64 ]]; then
 fi
 
 run_tests=0
+keep_going=0
 declare -A skip=()
 for argument in "$@"; do
     case $argument in
         --test) run_tests=1 ;;
+        --keep-going) keep_going=1 ;;
         --no-gpu) skip[gpu]=1; skip[link]=1 ;;
         --skip-libpf|--skip-common|--skip-atrac9|--skip-gpu|--skip-resource|--skip-link) skip[${argument#--skip-}]=1 ;;
-        *) echo "Unknown argument: $argument (usage: build-windows.sh [--test] [--no-gpu] [--skip-libpf|common|atrac9|gpu|resource|link])" >&2; exit 1 ;;
+        *) echo "Unknown argument: $argument (usage: build-windows.sh [--test] [--keep-going] [--no-gpu] [--skip-libpf|common|atrac9|gpu|resource|link])" >&2; exit 1 ;;
     esac
 done
 
@@ -41,6 +48,29 @@ if [[ -f src/platform/pf_posix_gap_win32.h ]]; then
 fi
 ldflags=(-fuse-ld=lld -Wl,--disable-high-entropy-va -Wl,--disable-dynamicbase)
 
+# --keep-going: one log per failed unit in out/win/census/ (unit=<path with / as __>.log).
+census=$out/census
+failures=0
+if ((keep_going)); then
+    rm -rf "$census" && mkdir -p "$census"
+    cflags+=(-ferror-limit=0)
+fi
+census_log() { local name=${1//\//__}; printf '%s' "$census/unit=$name.log"; }
+# compile SOURCE OBJECT FLAGS...: without --keep-going a failure stops the build (set -e).
+compile() {
+    local source=$1 object=$2
+    shift 2
+    if ((keep_going)); then
+        if "$CC" "$@" -c "$source" -o "$object" > "$(census_log "$source")" 2>&1; then
+            rm -f "$(census_log "$source")"
+        else
+            rm -f "$object"; failures=$((failures + 1)); echo "FAILED $source" >&2
+        fi
+    else
+        "$CC" "$@" -c "$source" -o "$object"
+    fi
+}
+
 # ---- 1. Platform layer -> out/win/libpf.a ------------------------------------------------------
 if [[ -z ${skip[libpf]:-} ]]; then
     platform_sources=()
@@ -53,12 +83,12 @@ if [[ -z ${skip[libpf]:-} ]]; then
     objects=()
     for file in "${platform_sources[@]}"; do
         object=$out/obj/$(basename -- "${file%.*}").o
-        "$CC" "${cflags[@]}" -c "$file" -o "$object"
-        objects+=("$object")
+        compile "$file" "$object" "${cflags[@]}"
+        [[ -f $object ]] && objects+=("$object")
     done
     rm -f "$out/libpf.a"
-    llvm-ar rcs "$out/libpf.a" "${objects[@]}"
-    echo "built $out/libpf.a (${#objects[@]} objects)"
+    if ((${#objects[@]})); then llvm-ar rcs "$out/libpf.a" "${objects[@]}"; fi
+    echo "built $out/libpf.a (${#objects[@]} of ${#platform_sources[@]} objects)"
 fi
 
 # ---- 2. Common sources (WIN32_SOURCES.txt) -----------------------------------------------------
@@ -73,7 +103,7 @@ while IFS= read -r line || [[ -n $line ]]; do
     [[ -z $line ]] && continue
     object=$out/obj/common/$(basename -- "${line%.*}").o
     if [[ -z ${skip[common]:-} ]]; then
-        "$CC" "${cflags[@]}" "${includes[@]}" -c "$line" -o "$object"
+        compile "$line" "$object" "${cflags[@]}" "${includes[@]}"
     fi
     common_objects+=("$object")
 done < src/platform/WIN32_SOURCES.txt
@@ -120,16 +150,34 @@ if [[ -z ${skip[gpu]:-} ]]; then
     fsr_patches_apply
     # No PGO on the first runs; LTO off unless BB_LTO says otherwise. VULKAN_SDK is unset so that
     # CMake does not pick the SDK's MSVC libraries.
-    env -u VULKAN_SDK CMAKE_PREFIX_PATH="$PWD/out/deps/prefix${CMAKE_PREFIX_PATH:+:$CMAKE_PREFIX_PATH}" \
+    configure_log=/dev/null
+    if ((keep_going)); then configure_log=$census/gpu-configure.log; fi
+    if ! env -u VULKAN_SDK CMAKE_PREFIX_PATH="$PWD/out/deps/prefix${CMAKE_PREFIX_PATH:+:$CMAKE_PREFIX_PATH}" \
         cmake -S gpu -B "$out/gpu" -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo -DBB_PGO=off \
-        -DBB_LTO="${BB_LTO:-OFF}" -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ >/dev/null
-    echo "GPU library: PGO off, LTO ${BB_LTO:-OFF}"
-    # A failed GPU build must stop here: an older libbbgpu.a would otherwise be linked silently.
-    if ! env -u VULKAN_SDK ninja -C "$out/gpu" bbgpu > "$out/gpu-build.log" 2>&1; then
-        grep -v '^\[' "$out/gpu-build.log" | tail -40 >&2
-        echo "GPU library build failed (full log: $out/gpu-build.log)" >&2; exit 1
+        -DBB_LTO="${BB_LTO:-OFF}" -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ > "$configure_log" 2>&1; then
+        if ((keep_going)); then
+            echo "FAILED GPU configure ($configure_log)" >&2; failures=$((failures + 1))
+        else
+            echo 'GPU library: CMake configure failed (run again with --keep-going for the log)' >&2; exit 1
+        fi
+    else
+        if ((keep_going)); then rm -f "$configure_log"; fi
+        echo "GPU library: PGO off, LTO ${BB_LTO:-OFF}"
+        ninja_keep=()
+        if ((keep_going)); then ninja_keep=(-k 0); fi
+        # A failed GPU build must stop here: an older libbbgpu.a would otherwise be linked silently.
+        if ! env -u VULKAN_SDK ninja -C "$out/gpu" "${ninja_keep[@]}" bbgpu > "$out/gpu-build.log" 2>&1; then
+            if ((keep_going)); then
+                cp "$out/gpu-build.log" "$census/gpu-build.log"; rm -f "$out/gpu/libbbgpu.a"
+                echo "FAILED GPU library ($census/gpu-build.log)" >&2; failures=$((failures + 1))
+            else
+                grep -v '^\[' "$out/gpu-build.log" | tail -40 >&2
+                echo "GPU library build failed (full log: $out/gpu-build.log)" >&2; exit 1
+            fi
+        else
+            echo "built GPU library in $out/gpu"
+        fi
     fi
-    echo "built GPU library in $out/gpu"
 fi
 
 # ---- 5. Manifest + resources -> out/win/sacredfire.res.o ---------------------------------------
@@ -140,7 +188,11 @@ if [[ -z ${skip[resource]:-} ]]; then
 fi
 
 # ---- 6. Link -> out/win/sacredfire.exe ---------------------------------------------------------
-if [[ -z ${skip[link]:-} ]]; then
+if [[ -z ${skip[link]:-} ]] && ((keep_going && failures)); then
+    echo "link skipped: $failures step(s) failed before it" >&2
+elif [[ -z ${skip[link]:-} ]]; then
+    link_log=/dev/stderr
+    if ((keep_going)); then link_log=$census/link.log; fi
     read -r -a libraries <<< "$(pkg-config --libs vulkan sdl3)"
     read -r -a gpu_pkg_libraries <<< "$(pkg-config --libs fmt libxxhash libavformat libavcodec libavutil libswscale libswresample)"
     # bbgpu is static and CMake does not bundle its static dependencies (sirit, FSR-Vulkan, ...),
@@ -155,7 +207,9 @@ if [[ -z ${skip[link]:-} ]]; then
     "$CXX" -O2 -g -gcodeview "${ldflags[@]}" -Wl,--pdb="$out/sacredfire.pdb" \
         "${common_objects[@]}" "$out/libpf.a" "$out/libatrac9.a" "$out/sacredfire.res.o" \
         -Wl,--start-group "${gpu_archives[@]}" "${zydis[@]}" -Wl,--end-group \
-        "${gpu_pkg_libraries[@]}" "${libraries[@]}" -lpthread -lm -o "$out/sacredfire.exe"
+        "${gpu_pkg_libraries[@]}" "${libraries[@]}" -lpthread -lm -o "$out/sacredfire.exe" 2> "$link_log" \
+        || { if ((keep_going)); then echo "FAILED link ($link_log)" >&2; failures=$((failures + 1)); else exit 1; fi; }
+    if ((keep_going)) && [[ ! -s $link_log ]]; then rm -f "$link_log"; fi
     echo "Built $PWD/$out/sacredfire.exe"
     # out/win/VERSION: the source revision this build came from (as build.sh): the nearest v* tag,
     # else the commit; "-dirty" when tracked files differ from it. The FSR-Vulkan patch applied
@@ -177,14 +231,28 @@ if ((run_tests)); then
         name=$(basename -- "${source%.c}")
         count=$((count + 1))
         exe=$out/$name.exe
-        if "$CC" "${cflags[@]}" "$source" "$out/libpf.a" "${ldflags[@]}" "-Wl,--pdb=$out/$name.pdb" -lpthread -o "$exe" \
-            && "$exe"; then
+        # test_sysv_abi.c brings its assembly "guest" caller.
+        extra=()
+        if [[ $name == test_sysv_abi ]]; then extra=(tests/refueled/sysv_caller.S); fi
+        test_log=/dev/stderr
+        if ((keep_going)); then test_log=$(census_log "$source"); fi
+        if "$CC" "${cflags[@]}" "$source" "${extra[@]}" "$out/libpf.a" "${ldflags[@]}" "-Wl,--pdb=$out/$name.pdb" -lpthread -o "$exe" 2> "$test_log" \
+            && if ((keep_going)); then "$exe" >> "$test_log" 2>&1; else "$exe"; fi; then
             echo "PASS $name"
+            if ((keep_going)); then rm -f "$test_log"; fi
         else
             echo "FAIL $name"
             failed=$((failed + 1))
         fi
     done
     echo "tests: $count run, $failed failed"
-    ((failed == 0)) || exit 1
+    failures=$((failures + failed))
+    ((keep_going || failed == 0)) || exit 1
+fi
+
+# ---- Census (--keep-going) ---------------------------------------------------------------------
+if ((keep_going)); then
+    python3 docs/refueled/tools/census_group.py "$census"
+    echo "census: $failures failed step(s); summary in $census/summary.md"
+    ((failures == 0)) || exit 1
 fi

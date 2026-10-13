@@ -1,0 +1,81 @@
+# refueled: file -> package owner, for grouping Windows build errors (census_group.py).
+# Format: PATTERN <spaces> PACKAGE. fnmatch patterns ('*' also matches '/'), relative to the repo
+# root; the FIRST matching line wins, so specific lines come before folder lines.
+# Owners ending in "Opus" are interfaces or the loader: their fixes are never delegated.
+
+# POSIX gap layer (before the interface line pf_*.h)
+src/platform/pf_posix_gap_win32.*        F6
+
+# Interfaces (INTERFACES.md) and loader
+src/platform/pf_*.h                      IF-Opus
+src/platform/platform.h                  IF-Opus
+src/runtime.h                            IF-Opus
+gpu/bbgpu.h                              IF-Opus
+src/probe.c                              K3-Opus
+
+# Platform layer (Windows) and its tests
+tests/refueled/test_posix_subset.c       F6
+tests/refueled/test_sysv_abi.c           F7
+tests/refueled/sysv_caller.S             F7
+src/platform/pf_memory_win32.c           K1
+tests/refueled/test_memory.c             K1
+src/platform/pf_lowheap*                 LH
+tests/refueled/test_lowheap.c            LH
+src/platform/pf_tls_win32.c              K4
+tests/refueled/test_tls.c                K4
+src/platform/pf_thread_win32.c           K6
+src/platform/pf_stack_win32.S            K6
+src/platform/pf_jmp_win32.S              K6
+tests/refueled/test_thread.c             K6
+src/platform/pf_exception_win32.c        K7
+tests/refueled/test_exception.c          K7
+src/platform/pf_fs_win32.c               R2
+tests/refueled/test_fs.c                 R2
+src/platform/pf_process_win32.c          R3
+src/platform/pf_log_win32.c              R3
+tests/refueled/test_process.c            R3
+src/platform/pf_time_win32.c             IF7-Opus
+tests/refueled/test_time.c               IF7-Opus
+src/platform/pf_base_win32.c             F2
+src/platform/pf_common.c                 F2
+tests/refueled/test_stubs.c              F2
+
+# Runtime (WIN32_SOURCES.txt)
+src/runtime_memory.c                     K2
+src/runtime_thread.c                     K5
+src/runtime_kernel.c                     R1
+src/runtime_file.c                       R2c
+src/runtime_savedata.c                   R2c
+src/runtime_audio.c                      R4
+src/runtime_pad.c                        R4
+src/runtime_ajm.c                        R4
+src/runtime*.c                           R5
+src/vulkan_smoke.c                       F3b
+tests/test_*.c                           T1
+third_party/LibAtrac9/*                  F3b
+packaging/windows/*                      F3b
+build-windows.sh                         F3b
+
+# GPU library: packages that changed single vendored files come before the folder lines
+gpu/shadps4/video_core/page_manager.*                       V1
+gpu/shadps4/video_core/amdgpu/liverpool.*                   V2
+gpu/shadps4/video_core/renderer_vulkan/vk_scheduler.*       V2
+gpu/shadps4/video_core/renderer_vulkan/vk_rasterizer.*      V2
+gpu/shadps4/video_core/renderer_vulkan/vk_pipeline_cache.*  V2
+gpu/shadps4/video_core/renderer_vulkan/vk_draw_pipe.h       V2
+gpu/shadps4/video_core/buffer_cache/buffer_cache.*          V2
+gpu/shadps4/core/libraries/videoout/driver.*                V2
+gpu/shadps4/video_core/buffer_cache/buffer.*                V3
+gpu/shadps4/video_core/renderer_vulkan/vk_instance.*        V3
+gpu/shim/bbport_guest_memory.*                              V3
+gpu/shadps4/video_core/buffer_cache/fault_manager.*         G3c
+gpu/shadps4/common/*                     G2a
+gpu/shadps4/shader_recompiler/*          G2b
+gpu/shadps4/video_core/renderer_vulkan/* G3b
+gpu/shadps4/core/*                       G3a
+gpu/shadps4/video_core/*                 G3a
+gpu/shim/*                               G3c
+gpu/CMakeLists.txt                       F5
+tools/deps-windows.sh                    F5
+gpu/third_party/*                        F5
+out/deps/*                               F5
