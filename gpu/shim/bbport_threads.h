@@ -6,29 +6,24 @@
 #pragma once
 
 #include <algorithm>
-#include <sched.h>
-#include <sys/resource.h>
 #include <thread>
-#include <unistd.h>
+
+#include "platform/pf_thread.h"
 
 namespace BbThreads {
 
 /// Hardware threads available to the process.
 inline unsigned Available() {
-    cpu_set_t set;
-    CPU_ZERO(&set);
-    if (sched_getaffinity(0, sizeof(set), &set) == 0) {
-        return std::max(1, CPU_COUNT(&set));
-    }
-    return std::max(1u, std::thread::hardware_concurrency());
+    // refueled: was sched_getaffinity + CPU_COUNT (pf_thread_linux.c:110-121; the fallback of
+    // pf_cpu_count_allowed is sysconf(_SC_NPROCESSORS_ONLN) instead of hardware_concurrency).
+    return static_cast<unsigned>(std::max(1, pf_cpu_count_allowed()));
 }
 
 /// The calling thread only runs on otherwise idle cores (falls back to the lowest nice level).
 inline void MakeBackground() {
-    sched_param param{};
-    if (sched_setscheduler(0, SCHED_IDLE, &param) != 0) {
-        setpriority(PRIO_PROCESS, static_cast<id_t>(gettid()), 19);
-    }
+    // refueled: was sched_setscheduler(SCHED_IDLE), else setpriority(nice 19) (pf_thread_linux.c:100-107).
+    // The result was ignored before and still is.
+    (void)pf_thread_set_idle_priority();
 }
 
 } // namespace BbThreads

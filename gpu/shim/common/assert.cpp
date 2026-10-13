@@ -4,7 +4,8 @@
 #include <stdexcept>
 #include "common/assert.h"
 #include "common/logging/log.h"
-#include <unistd.h>
+#include <chrono>
+#include <thread>
 
 // bb-probe (probe.c): set while the port restarts itself through run.sh. The device fd is closed
 // before exec; Vulkan calls failing then are not errors: this thread waits for the exec instead.
@@ -13,7 +14,9 @@ extern "C" __attribute__((weak)) volatile int runtime_restarting; // absent in t
 void assert_fail_impl() {
     if (&runtime_restarting && runtime_restarting) {
         for (;;) {
-            pause();
+            // refueled: was pause() (blocks until a signal arrives, then blocks again); a long
+            // sleep blocks for the debugger the same way and works on every platform.
+            std::this_thread::sleep_for(std::chrono::hours(24));
         }
     }
     std::fflush(stdout);

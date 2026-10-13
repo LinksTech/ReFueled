@@ -10,9 +10,10 @@
 #include <mutex>
 #include <string>
 #include <vector>
-#include <dlfcn.h>
-#include <execinfo.h>
-#include <pthread.h>
+#include <cinttypes>
+
+#include "platform/pf_process.h"
+#include "platform/pf_thread.h"
 
 namespace BbWaitTrace {
 namespace {
@@ -36,23 +37,26 @@ std::mutex mutex;
 std::map<Key, Total> totals;
 
 std::string Describe(void* address) {
-    Dl_info info{};
-    if (!dladdr(address, &info)) {
+    PfSymbol info{}; // refueled: was Dl_info / dladdr
+    if (pf_symbolize(reinterpret_cast<std::uintptr_t>(address), &info) != 0) {
         char text[32];
         std::snprintf(text, sizeof(text), "%p", address);
         return text;
     }
-    const char* file = info.dli_fname ? std::strrchr(info.dli_fname, '/') : nullptr;
-    file = file ? file + 1 : (info.dli_fname ? info.dli_fname : "?");
+    // refueled: the module may be a Windows path.
+    const char* file = std::strrchr(info.module, '/');
+#ifdef _WIN32
+    if (const char* backslash = std::strrchr(info.module, '\\')) {
+        file = (!file || backslash > file) ? backslash : file;
+    }
+#endif
+    file = file ? file + 1 : (info.module[0] ? info.module : "?");
     char text[512];
-    if (info.dli_sname) {
-        std::snprintf(text, sizeof(text), "%s+%#lx", info.dli_sname,
-                      (unsigned long)(static_cast<char*>(address) -
-                                      static_cast<char*>(info.dli_saddr)));
+    const std::uint64_t at = reinterpret_cast<std::uintptr_t>(address);
+    if (info.symbol[0]) {
+        std::snprintf(text, sizeof(text), "%s+%#" PRIx64, info.symbol, at - info.symbol_address);
     } else {
-        std::snprintf(text, sizeof(text), "%s+%#lx", file,
-                      (unsigned long)(static_cast<char*>(address) -
-                                      static_cast<char*>(info.dli_fbase)));
+        std::snprintf(text, sizeof(text), "%s+%#" PRIx64, file, at - info.module_base);
     }
     return text;
 }
@@ -70,7 +74,14 @@ Scope::Scope() {
     if (!Enabled()) {
         return;
     }
-    depth = backtrace(frames, int(std::size(frames)));
+    // refueled: was backtrace(frames, 10). pf_backtrace's frames[0] is its own code (like glibc's
+    // backtrace it is the caller of backtrace): one frame deeper, so ask for one more and drop it.
+    void* all[std::size(frames) + 1];
+    const int got = pf_backtrace(all, int(std::size(all)));
+    depth = got > 1 ? got - 1 : 0;
+    for (int i = 0; i < depth; ++i) {
+        frames[i] = all[i + 1];
+    }
     start = std::chrono::steady_clock::now();
 }
 
@@ -85,7 +96,7 @@ Scope::~Scope() {
     for (int i = 0; i < Kept && Skip + i < depth; ++i) {
         key.frames[i] = frames[Skip + i];
     }
-    pthread_getname_np(pthread_self(), key.thread.data(), key.thread.size());
+    pf_thread_get_name(key.thread.data(), key.thread.size()); // refueled: was pthread_getname_np
     std::scoped_lock lk{mutex};
     auto& total = totals[key];
     total.ns += ns;

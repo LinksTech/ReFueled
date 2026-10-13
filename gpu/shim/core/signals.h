@@ -1,10 +1,15 @@
-// bbport: fault-handler registry. The C loader's SIGSEGV handler calls
-// bbgpu_handle_fault() first; registered handlers run in priority order.
+// bbport: fault-handler registry. The loader's access-fault dispatcher (platform/pf_exception.h;
+// probe.c registers bbgpu_handle_fault first) calls bbgpu_handle_fault(), which calls the
+// registered handlers in priority order.
+// refueled: the `context` handed to the handlers is a PfContext* (platform/pf_exception.h; read
+// registers with pf_context_get), no longer a ucontext_t*; the parameter type stays void*.
 #pragma once
 #include <compare>
 #include <cstdint>
 #include <set>
-#include <signal.h>
+#ifndef _WIN32
+#include <signal.h> // refueled: kept for Linux includers that rely on it transitively
+#endif
 #include "common/singleton.h"
 #include "common/types.h"
 

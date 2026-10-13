@@ -8,10 +8,14 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
-#include <pthread.h>
-#include <sys/mman.h>
-#include <ucontext.h>
-#include <unistd.h>
+#ifdef _WIN32
+#include <malloc.h> // refueled: _aligned_malloc/_aligned_free
+#endif
+
+#include "platform/pf_exception.h"
+#include "platform/pf_log.h"
+#include "platform/pf_memory.h"
+#include "platform/pf_thread.h"
 
 namespace BbClobber {
 namespace {
@@ -106,7 +110,7 @@ void NoteWrite(std::uint64_t address, std::uint64_t value, std::uint32_t bytes, 
     if (bytes == 0 || address == 0) {
         return;
     }
-    static thread_local const std::uint32_t tid = static_cast<std::uint32_t>(gettid());
+    static thread_local const std::uint32_t tid = static_cast<std::uint32_t>(pf_thread_id()); // refueled: was gettid()
     const std::uint64_t now = NowNs();
     const std::uint64_t decoding_now = decoding.load(std::memory_order_relaxed);
     writes[writes_head.fetch_add(1, std::memory_order_relaxed) % writes.size()] =
@@ -135,7 +139,7 @@ void NoteWrite(std::uint64_t address, std::uint64_t value, std::uint32_t bytes, 
                             : "an older buffer, not resubmitted since";
     const bool late = hit->seq > decoding_now;
     char thread[32] = "?";
-    pthread_getname_np(pthread_self(), thread, sizeof(thread));
+    pf_thread_get_name(thread, sizeof(thread)); // refueled: was pthread_getname_np
     std::fprintf(stderr,
                  "Guest write check: %s of %u bytes, value %#llx, to %#llx lands inside submission "
                  "%llu's command buffer at +%#llx (%s; decoding submission %llu; submitted %.2f ms "
@@ -199,18 +203,29 @@ void* AllocCopy(std::size_t bytes) {
     if (!ProtectCopies()) {
         return std::malloc(bytes);
     }
+#ifdef _WIN32
+    // refueled: UCRT has no aligned_alloc; released by FreeCopy through _aligned_free.
+    return _aligned_malloc(RoundUp(bytes), Page);
+#else
     return std::aligned_alloc(Page, RoundUp(bytes));
+#endif
 }
 
 void FreeCopy(void* storage, std::size_t bytes) {
     if (ProtectCopies()) {
-        mprotect(storage, RoundUp(bytes), PROT_READ | PROT_WRITE);
+        pf_vm_protect(storage, RoundUp(bytes), PF_PROT_READ | PF_PROT_WRITE); // refueled: was mprotect
         for (Protected& p : protected_copies) {
             if (p.base.load(std::memory_order_relaxed) == reinterpret_cast<std::uint64_t>(storage)) {
                 p.base.store(0, std::memory_order_relaxed);
             }
         }
     }
+#ifdef _WIN32
+    if (ProtectCopies()) {
+        _aligned_free(storage); // refueled: pairs with _aligned_malloc in AllocCopy
+        return;
+    }
+#endif
     std::free(storage);
 }
 
@@ -227,15 +242,20 @@ void ProtectCopy(std::uint64_t seq, const void* storage, std::size_t bytes) {
             break;
         }
     }
-    if (mprotect(const_cast<void*>(storage), RoundUp(bytes), PROT_READ) != 0) {
+    const int protect_result = pf_vm_protect(const_cast<void*>(storage), RoundUp(bytes), PF_PROT_READ); // refueled: was mprotect
+    if (protect_result != 0) {
         static std::atomic<bool> once{false};
         if (!once.exchange(true)) {
-            std::perror("BB_COPY_PROTECT: mprotect");
+#ifdef _WIN32
+            std::fprintf(stderr, "BB_COPY_PROTECT: mprotect: error %d\n", protect_result);
+#else
+            std::perror("BB_COPY_PROTECT: mprotect"); // errno is still the mprotect error (pf_vm_protect)
+#endif
         }
     }
 }
 
-bool OnFault(void* ucontext, std::uint64_t address) {
+bool OnFault(PfContext* context, std::uint64_t address) { // refueled: PfContext (was ucontext)
     if (!ProtectCopies()) {
         return false;
     }
@@ -243,9 +263,8 @@ bool OnFault(void* ucontext, std::uint64_t address) {
         const std::uint64_t base = p.base.load(std::memory_order_relaxed);
         const std::uint64_t bytes = p.bytes.load(std::memory_order_relaxed);
         if (base != 0 && address >= base && address < base + bytes) {
-            const auto* uc = static_cast<const ucontext_t*>(ucontext);
             char thread[32] = "?";
-            pthread_getname_np(pthread_self(), thread, sizeof(thread));
+            pf_thread_get_name(thread, sizeof(thread)); // refueled: was pthread_getname_np
             char line[256];
             const int n = std::snprintf(
                 line, sizeof(line),
@@ -254,10 +273,9 @@ bool OnFault(void* ucontext, std::uint64_t address) {
                 (unsigned long long)p.seq.load(std::memory_order_relaxed),
                 (unsigned long long)(address - base), (unsigned long long)address,
                 (unsigned long long)bytes, (unsigned long long)base,
-                (unsigned long long)uc->uc_mcontext.gregs[REG_RIP], thread);
+                (unsigned long long)pf_context_get(context, PF_REG_RIP), thread);
             if (n > 0) {
-                const ssize_t written = write(2, line, std::min<std::size_t>(n, sizeof(line) - 1));
-                (void)written;
+                pf_write_stderr(line, std::min<std::size_t>(n, sizeof(line) - 1)); // refueled: was write(2, ...)
             }
             AskForReport();
             return true;

@@ -3,16 +3,17 @@
 #pragma once
 #include <array>
 #include <atomic>
-#include <csetjmp>
 #include <chrono>
 #include <cstdint>
 #include <cstdlib>
+
+#include "platform/pf_jmp.h" // refueled: pf_sigjmp_buf (was <csetjmp> sigjmp_buf)
 
 extern "C" std::uint64_t runtime_disabled_optimizations;
 /// Temporary experiment bits: the second number in BB_TOGGLE_FILE (runtime_memory.c).
 extern "C" std::uint64_t runtime_experiment_bits;
 /// Recovery point for speculative guest memory reads on this thread (runtime_memory.c).
-extern "C" __thread sigjmp_buf* runtime_fault_recover;
+extern "C" __thread pf_sigjmp_buf* runtime_fault_recover; // refueled: was sigjmp_buf*
 
 namespace BbToggle {
 enum : std::uint64_t {
