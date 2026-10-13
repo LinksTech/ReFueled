@@ -9,7 +9,8 @@
  *   open (always O_BINARY, O_CLOEXEC/O_NONBLOCK/O_DIRECTORY), read/write (blocks <= 1 GiB),
  *   pread/pwrite (64-bit offset, file pointer untouched), lseek/ftruncate/truncate/fseeko/ftello
  *   (64-bit), fsync (also on a directory descriptor), realpath, mkdir(path, mode),
- *   rename over an existing target, setenv/unsetenv, timegm,
+ *   rename over an existing target, setenv/unsetenv, timegm, strcasestr, gmtime_r/localtime_r
+ *   (C, when MinGW hides them), rand_s (via _CRT_RAND_S),
  *   pthread_condattr_setclock(CLOCK_MONOTONIC) with a matching pthread_cond_timedwait,
  *   d_type replacement pf_gap_entry_type(), DT_* constants.
  *
@@ -17,7 +18,7 @@
  * and, in C only, a function-like or object-like macro maps the POSIX name to it. C++ translation
  * units get NO macros (a macro named read/write/rename would break std::istream::read and
  * std::rename); they see only the pf_gap_*() declarations plus static inline forwarders for the
- * names MinGW lacks entirely (pread, pwrite, realpath, setenv, unsetenv; opt out with
+ * names MinGW lacks entirely (pread, pwrite, realpath, setenv, unsetenv, strcasestr; opt out with
  * PF_GAP_NO_CXX_FORWARDERS). All macros can be switched off with PF_GAP_NO_MACROS.
  *
  * NOT provided (see docs/refueled/log/F6.md): aligned_alloc/posix_memalign (UCRT free() cannot
@@ -30,6 +31,12 @@
 #define REFUELED_PF_POSIX_GAP_WIN32_H
 
 #if defined(_WIN32) && !defined(__ASSEMBLER__)
+
+/* rand_s() is declared by the UCRT <stdlib.h> only with _CRT_RAND_S defined before the first
+ * system header (src/runtime.c uses it in its Windows branch). */
+#ifndef _CRT_RAND_S
+#define _CRT_RAND_S
+#endif
 
 #include <stddef.h>
 #include <stdint.h>
@@ -182,6 +189,14 @@ int pf_gap_rename(const char *from, const char *to);
 int pf_gap_setenv(const char *name, const char *value, int overwrite);
 int pf_gap_unsetenv(const char *name);
 
+/* strcasestr: first occurrence of `needle` in `haystack`, ASCII case folding like glibc (bytes
+ * >= 0x80 compare exactly); an empty needle matches at `haystack`. */
+char *pf_gap_strcasestr(const char *haystack, const char *needle);
+/* Reentrant time conversion with the POSIX argument order; struct tm* on success, NULL (errno set)
+ * on failure. Wraps _gmtime64_s/_localtime64_s, whose result/argument order is reversed. */
+struct tm *pf_gap_gmtime_r(const time_t *timer, struct tm *result);
+struct tm *pf_gap_localtime_r(const time_t *timer, struct tm *result);
+
 /* d_type replacement: type of the entry `name` inside directory `dir` (both UTF-8): DT_DIR, DT_REG,
  * DT_LNK (symbolic link or junction, not followed) or DT_UNKNOWN. Needs one FindFirstFileW. */
 unsigned char pf_gap_entry_type(const char *dir, const char *name);
@@ -233,6 +248,14 @@ PF_GAP_END_DECLS
 #define setenv(name, value, overwrite) pf_gap_setenv((name), (value), (overwrite))
 #define unsetenv(name) pf_gap_unsetenv(name)
 #define timegm _mkgmtime
+#ifndef strcasestr
+#define strcasestr(haystack, needle) pf_gap_strcasestr((haystack), (needle))
+#endif
+/* MinGW declares gmtime_r/localtime_r only with _POSIX_THREAD_SAFE_FUNCTIONS (not under -std=c11). */
+#ifndef _POSIX_THREAD_SAFE_FUNCTIONS
+#define gmtime_r(timer, result) pf_gap_gmtime_r((timer), (result))
+#define localtime_r(timer, result) pf_gap_localtime_r((timer), (result))
+#endif
 /* Names UCRT spells with an underscore (strict -std=c11 may hide the POSIX ones). */
 #ifndef strcasecmp
 #define strcasecmp _stricmp
@@ -272,6 +295,9 @@ static inline int setenv(const char *name, const char *value, int overwrite) {
     return pf_gap_setenv(name, value, overwrite);
 }
 static inline int unsetenv(const char *name) { return pf_gap_unsetenv(name); }
+static inline char *strcasestr(const char *haystack, const char *needle) {
+    return pf_gap_strcasestr(haystack, needle);
+}
 #endif
 #endif /* !_MSC_VER && !PF_GAP_NO_MACROS */
 

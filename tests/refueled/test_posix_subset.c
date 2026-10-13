@@ -258,6 +258,7 @@ static void test_big_file(void) {
 
     CHECK(ftruncate(fd, (off_t)big) == 0);
     CHECK(lseek(fd, 0, SEEK_END) == big);
+    CHECK(lseek(fd, 0x80000001LL, SEEK_SET) == 0x80000001LL); /* the SEEK_END above moved the pointer */
     CHECK(pwrite(fd, "Z", 1, 0x100000000LL) == 1);
     CHECK(pread(fd, buf, 1, 0x100000000LL) == 1 && buf[0] == 'Z');
     CHECK(pread(fd, buf, 1, 0x80000000LL) == 1 && buf[0] == 'Q');
