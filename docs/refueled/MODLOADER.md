@@ -134,7 +134,7 @@ mods/<Mod-ID>/
 
 | ID | Inhalt | hängt ab von |
 |---|---|---|
-| ML1 | Overlay-Index in runtime_file.c + Verzeichnis-Vereinigung + `..`-Prüfung | M4 |
+| ML1 | Overlay-Index in runtime_file.c + Verzeichnis-Vereinigung + `..`-Prüfung – **vorgezogen als Paket MO (TASKS.md), nach M1 und vor M4**, weil der Link-Baum unter Windows ohne Admin/Entwicklermodus nicht geht | M1 |
 | ML2 | `mod.json`-Lesen, Reihenfolge, Startbericht | ML1 |
 | ML3 | Import-Hooks (Thunks aus DBG verallgemeinert) | DBG, ML2 |
 | ML4 | Detours mit Zydis, Signatursuche, Konfliktprüfung | ML2 |
