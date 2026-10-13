@@ -5,11 +5,11 @@
  * Paths containing ".." components are rejected rather than normalized. */
 #define _GNU_SOURCE
 #include "runtime.h"
+#include "platform/pf_fs.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>
-#ifndef _WIN32
 #include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -50,6 +50,14 @@ static int temp_name(const char *name) {
     size_t n=strlen(name);
     return n>6 && !strcmp(name+n-6,".bbtmp");
 }
+/* refueled: true for a directory entry that is a directory. Where readdir reports the type (Linux)
+ * that decides, exactly as before; only DT_UNKNOWN (Windows: no d_type) asks pf_fs_stat. */
+static int entry_is_dir(const struct dirent *e,const char *path) {
+    unsigned char type=PF_DIRENT_TYPE(e);
+    if (type!=DT_UNKNOWN) return type==DT_DIR;
+    PfStat st;
+    return !pf_fs_stat(path,&st) && S_ISDIR(st.mode);
+}
 /* Copies left by a crash (none of them open): removed when their directory is mounted. */
 static void remove_stale_temps(const char *dir,int depth) {
     DIR *d=opendir(dir);
@@ -62,7 +70,7 @@ static void remove_stale_temps(const char *dir,int depth) {
             int open_now=0;
             for (int i=3;i<MAX_FILES;++i) if (files[i].used && files[i].temp && !strcmp(files[i].temp,path)) open_now=1;
             if (!open_now && !unlink(path)) printf("Runtime: removed %s (a save interrupted earlier; the file it would have replaced is intact)\n",path);
-        } else if (depth<4 && e->d_type==DT_DIR) remove_stale_temps(path,depth+1);
+        } else if (depth<4 && entry_is_dir(e,path)) remove_stale_temps(path,depth+1);
     }
     closedir(d);
 }
@@ -166,7 +174,9 @@ static int host_flags(int flags) {
     switch (flags&3) { case 0: r=O_RDONLY; break; case 1: r=O_WRONLY; break; default: r=O_RDWR; }
     if (flags&0x4) r|=O_NONBLOCK;
     if (flags&0x8) r|=O_APPEND;
+#ifdef O_SYNC /* refueled: MinGW-w64 has no O_SYNC */
     if (flags&0x80) r|=O_SYNC;
+#endif
     if (flags&0x200) r|=O_CREAT;
     if (flags&0x400) r|=O_TRUNC;
     if (flags&0x800) r|=O_EXCL;
@@ -192,11 +202,12 @@ static Listing *list_directory(const char *path) {
         if (!l->offsets || !l->types || !l->names) { fputs("Out of memory listing directory\n",stderr); exit(1); }
         memcpy(l->names+bytes,e->d_name,n);
         l->offsets[l->count]=bytes;
-        unsigned char type=e->d_type;
+        unsigned char type=PF_DIRENT_TYPE(e);
         if (type==DT_LNK || type==DT_UNKNOWN) {
-            struct stat entry;
-            if (!fstatat(dirfd(d),e->d_name,&entry,0))
-                type=S_ISDIR(entry.st_mode) ? DT_DIR : S_ISREG(entry.st_mode) ? DT_REG : type;
+            /* refueled: pf_fs_stat of "<path>/<name>" (follows links) replaces fstatat(dirfd,name,0) */
+            char full[1400]; PfStat entry;
+            if ((size_t)snprintf(full,sizeof(full),"%s/%s",path,e->d_name)<sizeof(full) && !pf_fs_stat(full,&entry))
+                type=S_ISDIR(entry.mode) ? DT_DIR : S_ISREG(entry.mode) ? DT_REG : type;
         }
         l->types[l->count]=type==DT_DIR ? 4 : type==DT_REG ? 8 : type==DT_LNK ? 10 : 0;
         ++l->count; bytes+=n;
@@ -204,14 +215,14 @@ static Listing *list_directory(const char *path) {
     closedir(d);
     return l;
 }
-static void convert_stat(const struct stat *s,GuestStat *g) {
+static void convert_stat(const PfStat *s,GuestStat *g) {
     memset(g,0,sizeof(*g));
-    g->dev=(uint32_t)s->st_dev; g->ino=(uint32_t)s->st_ino;
-    g->mode=(uint16_t)s->st_mode; g->nlink=(uint16_t)s->st_nlink;
-    g->size=s->st_size; g->blocks=s->st_blocks; g->blksize=(uint32_t)s->st_blksize;
-    g->atime=(GuestTimespec){s->st_atim.tv_sec,s->st_atim.tv_nsec};
-    g->mtime=(GuestTimespec){s->st_mtim.tv_sec,s->st_mtim.tv_nsec};
-    g->ctime=(GuestTimespec){s->st_ctim.tv_sec,s->st_ctim.tv_nsec};
+    g->dev=(uint32_t)s->dev; g->ino=(uint32_t)s->ino;
+    g->mode=(uint16_t)s->mode; g->nlink=(uint16_t)s->nlink;
+    g->size=(int64_t)s->size; g->blocks=(int64_t)s->blocks; g->blksize=s->blksize;
+    g->atime=(GuestTimespec){s->atime_sec,s->atime_nsec};
+    g->mtime=(GuestTimespec){s->mtime_sec,s->mtime_nsec};
+    g->ctime=(GuestTimespec){s->ctime_sec,s->ctime_nsec};
     g->birthtime=g->ctime;
 }
 static File *get(int fd) {
@@ -256,16 +267,16 @@ static void current_copy(char *path,size_t size,int write) {
 /* Returns the descriptor of the copy, or -(errno). */
 static int open_for_commit(const char *path,const char *source,int flags,int mode,char **commit,char **temp) {
     int hf=host_flags(flags);
-    struct stat s;
-    int exists=!stat(source,&s);
-    if (exists && !S_ISREG(s.st_mode)) { int h=open(path,hf,mode ? mode : 0644); return h<0 ? -errno : h; }
+    PfStat s;
+    int exists=!pf_fs_stat(source,&s);
+    if (exists && !S_ISREG(s.mode)) { int h=open(path,hf,mode ? mode : 0644); return h<0 ? -errno : h; }
     if (exists && (hf&O_CREAT) && (hf&O_EXCL)) return -EEXIST;
     if (!exists && !(hf&O_CREAT)) return -ENOENT;
     size_t n=strlen(path)+32;
     char *t=malloc(n), *c=strdup(path);
     if (!t || !c) { free(t); free(c); return -ENOMEM; }
     snprintf(t,n,"%s.%u.bbtmp",path,__atomic_add_fetch(&temp_serial,1,__ATOMIC_RELAXED));
-    int out=open(t,O_WRONLY|O_CREAT|O_TRUNC|O_CLOEXEC,exists ? (int)(s.st_mode&07777) : mode ? mode : 0644);
+    int out=open(t,O_WRONLY|O_CREAT|O_TRUNC|O_CLOEXEC,exists ? (int)(s.mode&07777) : mode ? mode : 0644);
     int e=out<0 ? errno : 0;
     if (!e && exists && !(hf&O_TRUNC)) {
         int in=open(source,O_RDONLY|O_CLOEXEC);
@@ -331,9 +342,9 @@ static int64_t do_open(const char *guest,int flags,int mode) {
         if (e==ENOENT) { ++missing; printf("Runtime: open(%s) -> not found\n",guest); }
         return -e;
     }
-    struct stat s;
+    PfStat s={0}; /* refueled: zeroed (was uninitialised when fstat failed; only the audio trace reads it) */
     Listing *dir=NULL;
-    if (!fstat(host,&s) && S_ISDIR(s.st_mode)) dir=list_directory(path);
+    if (!pf_fs_fstat(host,&s) && S_ISDIR(s.mode)) dir=list_directory(path);
     pthread_mutex_lock(&lock);
     int fd=-1;
     for (int i=3;i<MAX_FILES;++i) if (!files[i].used) { fd=i; break; }
@@ -346,7 +357,7 @@ static int64_t do_open(const char *guest,int flags,int mode) {
     snprintf(files[fd].path,sizeof(files[fd].path),"%s",guest);
     ++opens;
     pthread_mutex_unlock(&lock);
-    if (audio_trace() && strstr(guest,"sound/")) printf("Audio trace: open(%s) -> fd %d, %lld bytes\n",guest,fd,(long long)s.st_size);
+    if (audio_trace() && strstr(guest,"sound/")) printf("Audio trace: open(%s) -> fd %d, %lld bytes\n",guest,fd,(long long)s.size);
     const char *mod_trace=getenv("BB_MOD_TRACE"), *mod_root=getenv("BB_MODS_DIR");
     if (mod_trace && mod_trace[0]=='1' && mod_root) {
         char actual[PATH_MAX],root[PATH_MAX];
@@ -480,19 +491,20 @@ static int64_t do_fstat(int fd,GuestStat *out) {
     int h=host_fd(fd);
     if (h<0) return -EBADF;
     if (!out) return -EFAULT;
-    struct stat s;
-    if (fstat(h,&s)) return -errno;
+    PfStat s;
+    int r=pf_fs_fstat(h,&s);
+    if (r) return r;
     convert_stat(&s,out); return 0;
 }
 static int64_t do_stat(const char *guest,GuestStat *out) {
-    char path[1024]; struct stat s;
+    char path[1024]; PfStat s;
     int e=translate(guest,path,sizeof(path));
     if (e) return -e;
     if (save_path(guest)) current_copy(path,sizeof(path),0);
     if (!out) return -EFAULT;
-    int r=stat(path,&s) ? -errno : 0;
-    if (r==-ENOENT && !save_path(guest) && fix_case(path)) r=stat(path,&s) ? -errno : 0;
-    if (save_trace() && save_path(guest)) printf("Save trace: stat(%s) -> %d, %lld bytes\n",guest,r,r ? -1LL : (long long)s.st_size);
+    int r=pf_fs_stat(path,&s); /* 0 or PF_E* (PF_ENOENT == -ENOENT) */
+    if (r==-ENOENT && !save_path(guest) && fix_case(path)) r=pf_fs_stat(path,&s);
+    if (save_trace() && save_path(guest)) printf("Save trace: stat(%s) -> %d, %lld bytes\n",guest,r,r ? -1LL : (long long)s.size);
     if (r) return r;
     convert_stat(&s,out); return 0;
 }
@@ -640,8 +652,3 @@ void runtime_file_report(void) {
     printf("Runtime: files opened=%zu, reads=%zu (%llu bytes), writes=%zu, not found=%zu\n",
            opens,reads,(unsigned long long)bytes_read,writes,missing);
 }
-#else
-uintptr_t runtime_file_resolve(const char *name) { (void)name; return 0; }
-void runtime_file_report(void) {}
-void runtime_file_configure(const char *a,const char *u) { (void)a; (void)u; }
-#endif
