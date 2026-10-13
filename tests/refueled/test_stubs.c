@@ -27,12 +27,7 @@ int main(void) {
 
     /* pf_tls: implemented (K4), tested in test_tls.c. */
 
-    CHECK(pf_context_get(NULL, PF_REG_RAX) == 0);
-    pf_context_set(NULL, PF_REG_RAX, 0);
-    CHECK(pf_context_native(NULL) == NULL);
-    CHECK(pf_fault_add_handler(0, NULL, NULL) == PF_ENOSYS);
-    CHECK(pf_fault_resume_at(NULL, NULL, 1) == PF_FAULT_CONTINUE_SEARCH);
-    CHECK(pf_watchdog_start(0, NULL, NULL) == PF_ENOSYS);
+    /* pf_exception: implemented (K7), tested in test_exception.c. */
 
     CHECK(pf_thread_create_on_stack(NULL, NULL, NULL, NULL, 0) == PF_ENOSYS);
     CHECK(pf_call_guest_on_stack(NULL, 0, 0, NULL, NULL) == 0);
