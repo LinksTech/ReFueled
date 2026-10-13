@@ -3,6 +3,9 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#ifdef _WIN32
+#include "platform/pf_posix_gap_win32.h" // refueled: strcasestr (MinGW has none); the GPU library is built without the gap force-include
+#endif
 #include <SDL3/SDL.h>
 #include <fstream>
 #include <vector>
