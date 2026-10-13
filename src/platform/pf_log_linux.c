@@ -1,5 +1,8 @@
 /* SPDX-License-Identifier: GPL-2.0-or-later */
 /* refueled: Linux pf_log: unbuffered, lock-free output to standard error. */
+#ifndef _GNU_SOURCE
+#define _GNU_SOURCE /* before the first system header, as in the runtime sources */
+#endif
 #include "pf_log.h"
 #include <errno.h>
 #include <string.h>

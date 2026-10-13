@@ -12,6 +12,9 @@
  * own (it must be at least a minimum block, else the payload moves to the next aligned address),
  * and the tail is split off when at least a minimum block remains. The range never grows. One
  * mutex guards everything. */
+#ifndef _GNU_SOURCE
+#define _GNU_SOURCE /* before the first system header, as in the runtime sources */
+#endif
 #include "pf_lowheap.h"
 #include "pf_log.h"
 #include <pthread.h>

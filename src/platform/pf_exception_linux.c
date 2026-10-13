@@ -9,6 +9,9 @@
  * The action that was installed before ours is remembered per signal and is called for faults no
  * registered handler claims, exactly as the shims chained to theirs; without one the signal's
  * default action runs. */
+#ifndef _GNU_SOURCE
+#define _GNU_SOURCE /* before the first system header, as in the runtime sources */
+#endif
 #include "pf_linux_internal.h"
 #include "pf_jmp.h"
 #include <errno.h>

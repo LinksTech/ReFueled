@@ -2,6 +2,9 @@
 /* refueled: pf_process on Linux. Moved code: dladdr/backtrace/maps as in src/probe.c (fault
  * report, runtime_restart, main), statm and DRM fdinfo as in gpu/shadps4/core/libraries/videoout/
  * driver.cpp (PrintMemory). */
+#ifndef _GNU_SOURCE
+#define _GNU_SOURCE /* before the first system header, as in the runtime sources */
+#endif
 #include <dirent.h>
 #include <dlfcn.h>
 #include <errno.h>

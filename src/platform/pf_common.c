@@ -2,6 +2,9 @@
 /* refueled: platform-neutral part of the platform layer: pf_not_implemented.
  * Async-signal-safe and thread-safe: no printf, no malloc, no locks; a fixed table of function
  * names claimed with compare-exchange. */
+#ifndef _GNU_SOURCE
+#define _GNU_SOURCE /* before the first system header, as in the runtime sources */
+#endif
 #include <stdatomic.h>
 #include <string.h>
 #include "pf_base.h"

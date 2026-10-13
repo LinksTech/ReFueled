@@ -2,6 +2,9 @@
 /* refueled: Linux pf_memory (see pf_memory.h). Moved from src/runtime_memory.c, src/probe.c and
  * the GPU shims, with the same calls and flags; the low heap (pf_low_*) is pf_lowheap_linux.c.
  * Guest addresses are below 1 TiB and every mapping is fixed, so nothing here tracks ranges. */
+#ifndef _GNU_SOURCE
+#define _GNU_SOURCE /* before the first system header, as in the runtime sources */
+#endif
 #include "pf_memory.h"
 #include <errno.h>
 #include <stdlib.h>

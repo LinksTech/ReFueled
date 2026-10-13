@@ -1,6 +1,9 @@
 /* SPDX-License-Identifier: GPL-2.0-or-later */
 /* refueled: pf_thread on Linux. Moved code with the same system calls and flags; the old places
  * are listed next to each function and in docs/refueled/log/K5a.md. */
+#ifndef _GNU_SOURCE
+#define _GNU_SOURCE /* before the first system header, as in the runtime sources */
+#endif
 #include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>

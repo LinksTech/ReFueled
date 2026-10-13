@@ -1,5 +1,8 @@
 /* SPDX-License-Identifier: GPL-2.0-or-later */
 /* refueled: Linux low heap = the C heap (see pf_memory.h, "Low heap"). */
+#ifndef _GNU_SOURCE
+#define _GNU_SOURCE /* before the first system header, as in the runtime sources */
+#endif
 #include "pf_memory.h"
 #include <stdlib.h>
 
