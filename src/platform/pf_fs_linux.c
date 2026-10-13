@@ -59,7 +59,7 @@ int pf_fs_rename_replace(const char *from, const char *to) {
 
 /* runtime_file.c convert_stat: the fields it read from struct stat. */
 static int to_pf_stat(int result, const struct stat *s, PfStat *out) {
-    if (result != 0) return errno == ENOENT ? PF_ENOENT : errno == EACCES ? PF_EACCES : PF_EIO;
+    if (result != 0) return -errno; /* -errno as before: runtime_file.c maps it to the guest errno */
     out->dev = (uint64_t)s->st_dev; out->ino = (uint64_t)s->st_ino; out->nlink = (uint64_t)s->st_nlink;
     out->size = (uint64_t)s->st_size; out->blocks = (uint64_t)s->st_blocks;
     out->mode = (uint32_t)s->st_mode; out->blksize = (uint32_t)s->st_blksize;

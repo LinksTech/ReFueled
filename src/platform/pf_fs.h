@@ -23,7 +23,8 @@ typedef struct {
     int64_t atime_sec, atime_nsec, mtime_sec, mtime_nsec, ctime_sec, ctime_nsec;
 } PfStat;
 
-/* stat(path) / fstat(fd) into a PfStat; 0, PF_ENOENT, PF_EACCES or PF_EIO. */
+/* stat(path) / fstat(fd) into a PfStat; 0 or a negative error (Linux: -errno exactly as stat set
+ * it; Windows: PF_ENOENT, PF_EACCES, PF_EINVAL or PF_EIO). */
 int pf_fs_stat(const char *path, PfStat *out);
 int pf_fs_fstat(int fd, PfStat *out);
 
