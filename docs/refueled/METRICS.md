@@ -27,6 +27,7 @@ sched_*affinity, SCHED_IDLE, setpriority, prctl), pthread-np, getdents, ftw, dl,
 | Datum | Stand (Commit) | Kennzahl Linux-only | davon eigener Code | davon bbport-Zeilen in gpu/shadps4 | inkl. POSIX (Info) | Plattform-#if außerhalb src/platform | Bemerkung |
 |---|---|---|---|---|---|---|---|
 | 2026-10-12 | f1f7935 (Baseline) | **335** | 283 | 52 | 696 | 23 | Ausgangswert vor jeder Änderung |
+| 2026-10-13 | 1fa93bc (Welle 1) | **335** | 283 | 52 | 696 | 23 | Plattformschicht beider Plattformen fertig (K1, K2a, K4, K5a, K8, LH, R2/R3-Plattformteil); Aufrufer noch nicht umgestellt (braucht den Linux-Gesamtbuild in Nix) |
 
 ## Baseline nach Kategorie (eigener Code / bbport-Zeilen)
 
