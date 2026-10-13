@@ -16,6 +16,8 @@
 
 #include <cstdint>
 
+#include "platform/pf_exception.h"
+
 namespace BbFreeCheck {
 enum Source : std::uint32_t {
     Eop,
@@ -50,7 +52,7 @@ void NoteFenceWritten(std::uint64_t label, std::uint64_t write_ns = 0);
 /// but not yet written is read-only; a guest write into such a label block is reported with
 /// the guest code and call chain that made it (who frees a label before its fence). True when
 /// the fault was the trap's (the page is writable again).
-bool OnTrapFault(void* ucontext, std::uint64_t address);
+bool OnTrapFault(PfContext* context, std::uint64_t address);
 /// After OnTrapFault and GPU page tracking declined a fault: true when it raced with a trapped
 /// page's release (the write is retried).
 bool OnStaleTrapFault(std::uint64_t address);
