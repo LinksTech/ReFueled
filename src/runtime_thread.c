@@ -1,21 +1,21 @@
 /* Guest threads on host pthreads. Each guest thread owns a FreeBSD-style TCB
  * (variant II: static TLS below the TCB). The loader rewrites the eboot's
- * `mov rax, fs:[0]` into `mov rax, gs:[0]`, so GS base = guest TCB while glibc
- * keeps FS. Priorities/affinity are recorded, not enforced by a PS4 scheduler. */
+ * `mov rax, fs:[0]` into `mov rax, gs:[0]`; pf_tls_set_guest_base makes the guest
+ * thread pointer = guest TCB (Linux: GS base, glibc keeps FS; Windows: TEB TLS slot).
+ * Priorities/affinity are recorded, not enforced by a PS4 scheduler.
+ * refueled: platform specifics (GS base, caller-provided stacks, thread names/ids,
+ * register-only jumps, low heap) go through src/platform/pf_*.h. */
 #define _GNU_SOURCE
 #include "runtime.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#ifndef _WIN32
 #include <pthread.h>
 #include <sched.h>
-#include <setjmp.h>
-#include <errno.h>
-#include <unistd.h>
-#include <sys/syscall.h>
-#include <sys/mman.h>
-#include <asm/prctl.h>
+#include "platform/pf_jmp.h"
+#include "platform/pf_memory.h"
+#include "platform/pf_thread.h"
+#include "platform/pf_tls.h"
 #define ERR(n) ((int32_t)(UINT32_C(0x80020000)|(n)))
 #define ATTR_MAGIC UINT32_C(0x41545452)
 #define STACK_MARGIN (256*1024)
@@ -40,7 +40,7 @@ typedef struct GuestThread {
     ThreadAttr attr;
     char name[32];
     int detached, finished, joined, host_owned;
-    jmp_buf exit_jump;
+    pf_jmp_buf exit_jump;
     struct GuestThread *next;
 } GuestThread;
 
@@ -48,7 +48,10 @@ static pthread_mutex_t lock=PTHREAD_MUTEX_INITIALIZER;
 static ThreadAttr *attributes;
 static GuestThread *threads;
 static _Thread_local GuestThread *current;
-static _Thread_local int32_t guest_errno;
+/* refueled: the guest gets the address of this cell (scePthread errno getter, __Error), so it must
+ * lie below 1 TiB: it lives in the thread's TCB block (low heap) or, for a thread without a TCB, in
+ * a small low-heap cell of its own. */
+static _Thread_local int32_t *errno_cell;
 static const unsigned char *tls_template;
 static uint64_t tls_filesz, tls_memsz, tls_align=16;
 static size_t created, joined_count, exited;
@@ -58,13 +61,21 @@ void runtime_set_main_tls(const void *data,uint64_t filesz,uint64_t memsz,uint64
 }
 static uint64_t tls_offset(void) { return (tls_memsz+tls_align-1)&~(tls_align-1); }
 static void set_gs(void *base) {
-    if (syscall(SYS_arch_prctl,ARCH_SET_GS,(unsigned long)base)) { perror("STOP: arch_prctl(ARCH_SET_GS)"); exit(21); }
+    int r=pf_tls_set_guest_base(base);
+    if (r) { fprintf(stderr,"STOP: arch_prctl(ARCH_SET_GS): %s\n",strerror(-r)); exit(21); }
+}
+static int32_t *errno_location(void) {
+    if (!errno_cell) {
+        errno_cell=pf_low_calloc(1,sizeof(int32_t));
+        if (!errno_cell) { fputs("Cannot allocate guest errno\n",stderr); exit(1); }
+    }
+    return errno_cell;
 }
 /* Build TCB/static TLS for the calling host thread and point GS at it. */
 static void attach(GuestThread *t) {
     uint64_t offset=tls_offset();
-    size_t total=offset+256;
-    unsigned char *block=aligned_alloc(64,(total+63)&~(size_t)63);
+    size_t total=offset+256+16;               /* 256 bytes of TCB, then the errno cell */
+    unsigned char *block=pf_low_aligned_alloc(64,(total+63)&~(size_t)63);
     if (!block) { fputs("Cannot allocate guest TLS\n",stderr); exit(1); }
     memset(block,0,total);
     if (tls_filesz) memcpy(block,tls_template,tls_filesz);
@@ -74,11 +85,12 @@ static void attach(GuestThread *t) {
     tcb[1]=(uint64_t)(uintptr_t)dtv;         /* tcb_dtv (static module only) */
     tcb[2]=(uint64_t)(uintptr_t)t;           /* tcb_thread */
     t->tls_block=block; t->tcb=tcb;
+    if (!errno_cell) errno_cell=(int32_t *)(void *)((unsigned char *)tcb+256);
     set_gs(tcb);
     current=t;
 }
 static GuestThread *new_thread(void) {
-    GuestThread *t=calloc(1,sizeof(*t));
+    GuestThread *t=pf_low_calloc(1,sizeof(*t));
     if (!t) return NULL;
     t->attr=(ThreadAttr){.magic=ATTR_MAGIC,.policy=1,.prio=DEFAULT_PRIO,.stack=DEFAULT_STACK,.affinity=0x7f};
     return t;
@@ -124,12 +136,12 @@ static ThreadAttr *find_attr(ThreadAttr **slot) {
 }
 
 static ABI void *thread_self(void) { return runtime_thread_current(); }
-static ABI int32_t *guest_error(void) { return &guest_errno; }
-int32_t *runtime_errno(void) { return &guest_errno; }
+static ABI int32_t *guest_error(void) { return errno_location(); }
+int32_t *runtime_errno(void) { return errno_location(); }
 
 static ABI int32_t attr_init(ThreadAttr **out) {
     if (!out) return ERR(22);
-    ThreadAttr *a=calloc(1,sizeof(*a));
+    ThreadAttr *a=pf_low_calloc(1,sizeof(*a));
     if (!a) return ERR(12);
     *a=(ThreadAttr){.magic=ATTR_MAGIC,.policy=1,.prio=DEFAULT_PRIO,.inherit=4,.stack=DEFAULT_STACK,.guard=4096,.affinity=0x7f};
     pthread_mutex_lock(&lock); a->next=attributes; attributes=a; pthread_mutex_unlock(&lock);
@@ -143,7 +155,7 @@ static ABI int32_t attr_destroy(ThreadAttr **slot) {
     while (*link!=a) link=&(*link)->next;
     *link=a->next; a->magic=0;
     pthread_mutex_unlock(&lock);
-    free(a); *slot=NULL; return 0;
+    pf_low_free(a); *slot=NULL; return 0;
 }
 static ABI int32_t attr_get(void *thread,ThreadAttr **out) {
     ThreadAttr *a=find_attr(out);
@@ -211,17 +223,13 @@ static ABI int32_t attr_set_guard(ThreadAttr **slot,uint64_t size) {
     a->guard=size; return 0;
 }
 
-/* Linux thread names hold 15 characters; longer ones would be rejected. */
-static void set_host_name(const char *name) {
-    char host[16]={0};
-    memcpy(host,name,strnlen(name,sizeof(host)-1));
-    pthread_setname_np(pthread_self(),host);
-}
+/* refueled: pf_thread_set_name truncates to 15 characters (longer names would be rejected on Linux). */
+static void set_host_name(const char *name) { (void)pf_thread_set_name(name); }
 static void *host_start(void *p) {
     GuestThread *t=p;
     attach(t);
     set_host_name(t->name);
-    if (!setjmp(t->exit_jump)) t->result=t->entry(t->argument);
+    if (!pf_setjmp(t->exit_jump)) t->result=t->entry(t->argument);
     runtime_kernel_thread_exit();
     runtime_thread_keys_cleanup();
     pthread_mutex_lock(&lock); t->finished=1; ++exited; pthread_mutex_unlock(&lock);
@@ -236,19 +244,15 @@ static int32_t create(GuestThread **out,ThreadAttr **attr_slot,GuestEntry entry,
     if (a) { t->attr=*a; t->attr.next=NULL; }
     t->entry=entry; t->argument=argument; t->detached=t->attr.detached;
     snprintf(t->name,sizeof(t->name),"%s",name ? name : "guest");
-    pthread_attr_t host;
-    pthread_attr_init(&host);
     uint64_t stack=t->attr.stack<MIN_STACK ? MIN_STACK : t->attr.stack;
     /* Stacks below 1 TiB as on PS4; guest code may pack stack addresses. */
     size_t stack_bytes=(size_t)stack+STACK_MARGIN;
-    void *stack_memory=runtime_low_map(stack_bytes,PROT_READ|PROT_WRITE);
-    if (stack_memory) pthread_attr_setstack(&host,stack_memory,stack_bytes);
-    else pthread_attr_setstacksize(&host,stack_bytes);
+    void *stack_memory=runtime_low_map(stack_bytes,PF_PROT_READ|PF_PROT_WRITE);
     publish(t);
     /* Publish the handle before the thread can run and inspect itself. */
     *out=t;
-    int e=pthread_create(&t->host,&host,host_start,t);
-    pthread_attr_destroy(&host);
+    /* stack_memory NULL: pf_thread_create_on_stack falls back to an ordinary thread of stack_bytes. */
+    int e=pf_thread_create_on_stack(&t->host,host_start,t,stack_memory,stack_bytes);
     if (e) { fprintf(stderr,"STOP: host pthread_create failed: %d\n",e); exit(21); }
     if (t->detached) pthread_detach(t->host);
     pthread_mutex_lock(&lock); ++created; pthread_mutex_unlock(&lock);
@@ -282,7 +286,7 @@ static ABI __attribute__((noreturn)) void thread_exit(void *value) {
     if (t->host_owned) { fputs("STOP: pthread_exit on host-owned/main thread\n",stderr); exit(21); }
     t->result=value;
     /* No host unwinder: guest frames have no registered FDEs. */
-    longjmp(t->exit_jump,1);
+    pf_longjmp(t->exit_jump,1);
 }
 static ABI int32_t thread_yield(void) { sched_yield(); return 0; }
 static ABI int32_t thread_get_prio(GuestThread *t,int *prio) {
@@ -317,7 +321,7 @@ static ABI int32_t thread_getname(GuestThread *t,char *name) {
     if (!name) return ERR(22);
     memcpy(name,t->name,sizeof(t->name)); return 0;
 }
-static ABI int32_t thread_getthreadid(void) { return (int32_t)syscall(SYS_gettid); }
+static ABI int32_t thread_getthreadid(void) { return (int32_t)pf_thread_id(); }
 /* Deferred cancellation: a thread without cancellation points keeps running, as on the console; the
  * request is noted so the caller sees success. No guest thread of this game is expected to reach a
  * cancellation point; a cancel that must take effect would need the point implemented. */
@@ -385,9 +389,3 @@ void runtime_thread_report(void) {
     printf("Runtime: guest threads created=%zu, exited=%zu, joined=%zu\n",created,exited,joined_count);
     pthread_mutex_unlock(&lock);
 }
-#else
-uintptr_t runtime_thread_resolve(const char *name) { (void)name; return 0; }
-void runtime_thread_report(void) {}
-void runtime_thread_attach_main(void) {}
-void runtime_set_main_tls(const void *d,uint64_t f,uint64_t m,uint64_t a) { (void)d;(void)f;(void)m;(void)a; }
-#endif
