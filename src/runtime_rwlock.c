@@ -45,10 +45,10 @@ static Rwlock *find_locked(Rwlock *handle) {
     return NULL;
 }
 static int create_locked(Rwlock **out) {
-    Rwlock *r=calloc(1,sizeof(*r));
+    Rwlock *r=pf_low_calloc(1,sizeof(*r));
     if (!r) return ENOMEM;
     int e=pthread_rwlock_init(&r->native,NULL);
-    if (e) { free(r); return e; }
+    if (e) { pf_low_free(r); return e; }
     r->next=registry; registry=r; *out=r; ++created; return 0;
 }
 static ABI int32_t rw_init(Rwlock **out, void *const *attr, const char *name) {
@@ -139,7 +139,7 @@ static ABI int32_t rw_destroy(Rwlock **handle) {
     if (!e) {
         Rwlock **link=&registry;
         while (*link!=r) link=&(*link)->next;
-        *link=r->next; free(r); *handle=(Rwlock *)(uintptr_t)1;
+        *link=r->next; pf_low_free(r); *handle=(Rwlock *)(uintptr_t)1;
     }
     pthread_mutex_unlock(&registry_lock); return error(e);
 }
