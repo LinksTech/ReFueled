@@ -61,6 +61,9 @@ if ((keep_going)); then
     rm -rf "$census" && mkdir -p "$census"
     cflags+=(-ferror-limit=0)
 fi
+# with_log LOG CMD...: CMD with stderr to LOG (--keep-going), else stderr untouched. ("2> /dev/stderr"
+# reopens the stream under MSYS: on a file it writes from offset 0 over earlier output, on a pipe it fails.)
+with_log() { local log=$1; shift; if [[ -n $log ]]; then "$@" 2> "$log"; else "$@"; fi; }
 census_log() { local name=${1//\//__}; printf '%s' "$census/unit=$name.log"; }
 # compile SOURCE OBJECT FLAGS...: without --keep-going a failure stops the build (set -e).
 compile() {
@@ -219,13 +222,13 @@ gpu_link_inputs() {
 if [[ -z ${skip[link]:-} ]] && ((keep_going && failures)); then
     echo "link skipped: $failures step(s) failed before it" >&2
 elif [[ -z ${skip[link]:-} ]]; then
-    link_log=/dev/stderr
+    link_log=
     if ((keep_going)); then link_log=$census/link.log; fi
     gpu_link_inputs
     linked=0
-    "$CXX" -O2 -g -gcodeview "${ldflags[@]}" -Wl,--pdb="$out/sacredfire.pdb" \
+    with_log "$link_log" "$CXX" -O2 -g -gcodeview "${ldflags[@]}" -Wl,--pdb="$out/sacredfire.pdb" \
         "${common_objects[@]}" "$out/libpf.a" "$out/libatrac9.a" "$out/sacredfire.res.o" \
-        "${gpu_group[@]}" -lpthread -lm -o "$out/sacredfire.exe" 2> "$link_log" \
+        "${gpu_group[@]}" -lpthread -lm -o "$out/sacredfire.exe" \
         && linked=1 \
         || { if ((keep_going)); then echo "FAILED link ($link_log)" >&2; failures=$((failures + 1)); else exit 1; fi; }
     if ((keep_going)) && [[ ! -s $link_log ]]; then rm -f "$link_log"; fi
@@ -253,9 +256,9 @@ if ((run_tests)); then
         # test_sysv_abi.c brings its assembly "guest" caller.
         extra=()
         if [[ $name == test_sysv_abi ]]; then extra=(tests/refueled/sysv_caller.S); fi
-        test_log=/dev/stderr
+        test_log=
         if ((keep_going)); then test_log=$(census_log "$source"); fi
-        if "$CC" "${cflags[@]}" "$source" "${extra[@]}" "$out/libpf.a" "${ldflags[@]}" "-Wl,--pdb=$out/$name.pdb" -lpthread -o "$exe" 2> "$test_log" \
+        if with_log "$test_log" "$CC" "${cflags[@]}" "$source" "${extra[@]}" "$out/libpf.a" "${ldflags[@]}" "-Wl,--pdb=$out/$name.pdb" -lpthread -o "$exe" \
             && if ((keep_going)); then "$exe" >> "$test_log" 2>&1; else "$exe"; fi; then
             echo "PASS $name"
             if ((keep_going)); then rm -f "$test_log"; fi
@@ -289,7 +292,7 @@ if ((run_tests)); then
             test_content) inputs=(tests/test_content.c src/runtime_content.c "$out/libpf.a") ;;
             *)  ((${#gpu_group[@]})) || gpu_link_inputs ;;
         esac
-        test_log=/dev/stderr
+        test_log=
         if ((keep_going)); then test_log=$(census_log "tests/$name.c"); fi
         case $name in
             test_runtime|test_sema|test_eventflag)
@@ -301,7 +304,7 @@ if ((run_tests)); then
                 } ;;
             *)  build_test() { "$CC" "${cflags[@]}" "${inputs[@]}" "${ldflags[@]}" "-Wl,--pdb=$out/$name.pdb" -lpthread -lm -o "$exe"; } ;;
         esac
-        if build_test 2> "$test_log" \
+        if with_log "$test_log" build_test \
             && if ((keep_going)); then "$exe" >> "$test_log" 2>&1; else "$exe"; fi; then
             echo "PASS $name"
             if ((keep_going)); then rm -f "$test_log"; fi
