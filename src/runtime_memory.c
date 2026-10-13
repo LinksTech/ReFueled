@@ -30,12 +30,13 @@ static uint64_t pool_size_bytes(void) {
 #define FLEXIBLE_SIZE (UINT64_C(448) * 1024 * 1024)
 #define PAGE UINT64_C(16384)
 /* Host-owned memory the guest can see (image, stacks, trampolines) lives in
- * [LOW_MIN, USER_MIN): PS4 code packs pointers into 40-bit fields. The top LOW_HEAP_SIZE of it is
- * the low heap (pf_low_heap_init), so runtime_low_map stops at LOW_MAP_END. */
+ * [LOW_MIN, USER_MIN): PS4 code packs pointers into 40-bit fields. On Windows the top LOW_HEAP_SIZE
+ * of it is the low heap (pf_low_heap_init), so runtime_low_map stops at LOW_MAP_END; on Linux
+ * LOW_HEAP_SIZE is 0 and LOW_MAP_END is USER_MIN, as before the port. */
 #define LOW_MIN UINT64_C(0x0800000000)
 #define USER_MIN UINT64_C(0x1000000000)
 #define USER_MAX UINT64_C(0xfc00000000)
-#define LOW_HEAP_SIZE (UINT64_C(512) << 20)
+#define LOW_HEAP_SIZE PF_LOW_HEAP_SIZE /* pf_memory.h: Windows 512 MiB, Linux 0 */
 #define LOW_MAP_END (USER_MIN - LOW_HEAP_SIZE)
 #define LIMIT 4096
 #define INVALID ((int32_t)UINT32_C(0x80020016))

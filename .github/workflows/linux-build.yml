@@ -3,7 +3,7 @@
 #
 # Known, accepted deviations from the pre-port Linux behaviour (docs/refueled/ARCHITECTURE.md
 # D21; none of them shows in normal operation, do not "fix" them in CI):
-#   1 runtime_low_map area ends 512 MiB earlier (low heap)   2 guest errno cell at another address
+#   (1, 2 reverted by IF-11: low heap and the errno cell in the TCB block are Windows-only)
 #   3 sysctl kern.arandom fills completely, EIO on failure    4 localtime_r/getrusage error paths
 #   5 stale-temp cleanup also descends on DT_UNKNOWN          6 MAP_FIXED_NOREPLACE on kernels < 4.17
 #   7 pool()/map_phys error paths                             8 CPU count / thread-name fallbacks

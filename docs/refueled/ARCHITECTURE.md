@@ -207,14 +207,31 @@ Windows ist unverändert (Watchdog-Thread, SuspendThread). Belege: docs/refueled
 
 ### D21 Bekannte Linux-Abweichungen (Durchsicht aller Paket-Logs 2026-10-13)
 Ergebnis der einmaligen Durchsicht aller 35 Paket-Logs (Regel Projektleitung 2026-10-13). Keine weitere
-Abweichung wirkt im Normalbetrieb; D20 ist aufgehoben. Entschieden: alle unten beibehalten, weil
-sie nur Fehlerpfade, sehr alte Kernel oder Diagnosetexte betreffen oder für < 1 TiB nötig sind.
-Rückbau jeweils möglich, falls gewünscht.
+Abweichung wirkt im Normalbetrieb; D20 ist aufgehoben. Punkte 3–10 von der Projektleitung abgenommen
+(2026-10-13). Punkte 1 und 2 waren nur unter Windows nötig (unter Linux liegen C-Heap, `-no-pie`-Exe
+und die Thread-TLS auf den Low-Stacks ohnehin unter 1 TiB, D10) und sind mit IF-11 auf Windows
+beschränkt; Linux entspricht dort wieder dem Stand vor dem Port.
+
+**Belegung des runtime_low_map-Bereichs (Prüfung 2026-10-13, aus Code und Doku):**
+- Bereich [0x8_0000_0000, 0x10_0000_0000) = 32 GiB. Windows: davon 512 MiB Low-Heap (1,6 %),
+  31,5 GiB für `runtime_low_map`; Linux: 32 GiB (IF-11).
+- Nutzer (`runtime_low_map`, nie freigegeben, `low_next` wächst nur, je Abbildung 16 KiB Lücke):
+  Image (probe.c `allocate`, Textsegment 0x50d96dc ≈ 81 MiB laut runtime_kernel.c, Grenze 512 MiB
+  in probe.c), Import-Trampoline `(n+1)·32` B und Daten-Fallen `(n+1)·Seite` (730 Host-Importe laut
+  docs/sacredfire/01-imports.md → einige MiB), Hauptstack 8 MiB, je Gast-Thread Stack
+  (`attr.stack`, Standard 1 MiB, mindestens 64 KiB) + 256 KiB Rand + 16 KiB Lücke ≈ 1,27 MiB.
+- Eine gemessene Spitzenbelegung des Spiels ist in Code und Doku nicht belegt (keine
+  Thread-Zahl, kein "Mapped … bytes" für CTR). Abschätzung: Image ≤ 0,2 GiB + Fallen/Stack
+  ≈ 0,03 GiB + Threads. Die 2×-Grenze (15,75 GiB auf Windows) wird erst bei rund 12 000
+  Gast-Thread-Erzeugungen mit Standardstack über eine Sitzung erreicht, weil Stacks nie
+  wiederverwendet werden (auch unter Linux, Verhalten vor dem Port). Messpunkt ab M1/M2:
+  "Mapped … bytes" und "Runtime: guest threads created=…" im Log; liegt die Hochrechnung dann
+  über 15,75 GiB, wird das sofort gemeldet.
 
 | Nr. | Paket | Abweichung unter Linux | Wann sichtbar | Entscheidung |
 |---|---|---|---|---|
-| 1 | K2 | Bereich für `runtime_low_map` endet 512 MiB früher (31,5 statt 32 GiB), dort liegt der Low-Heap (D10) | nur wenn der Low-Bereich vollläuft (Image + Stacks nutzen einen Bruchteil) | beibehalten, nötig für LH |
-| 2 | K5 | Gast-errno-Zelle liegt im TCB-Block (+16 Byte) bzw. in einer Low-Heap-Zelle statt in `_Thread_local`; andere Adresse, gleicher Inhalt | Gast sieht eine andere Adresse | beibehalten, nötig für < 1 TiB |
+| 1 | K2 | ~~Bereich für `runtime_low_map` endet 512 MiB früher~~ | – | **aufgehoben (IF-11)**: `PF_LOW_HEAP_SIZE` ist unter Linux 0, `LOW_MAP_END` = `USER_MIN` wie vorher; nur Windows reserviert 512 MiB |
+| 2 | K5 | ~~Gast-errno-Zelle im TCB-Block~~ | – | **aufgehoben (IF-11)**: `PF_GUEST_ERRNO_IN_TCB` ist unter Linux 0, wieder `_Thread_local int32_t guest_errno` und TCB-Block ohne +16 Byte; nur Windows nutzt die Zelle im TCB-Block |
 | 3 | R1b | `sysctl kern.arandom` füllt den Puffer vollständig (vorher ein einzelnes `getrandom`, kurze Lesung als Erfolg möglich); Fehler als EIO statt errno | nur bei durch Signal unterbrochenem `getrandom` > 256 Byte bzw. Fehler | beibehalten (Fehlerbehebung) |
 | 4 | R1b | `localtime_r`-Fehlerpfad (ERR 22) entfällt; `getrusage`-Fehler liefert EIO statt uninitialisierter Werte | nur bei Fehlschlag dieser Aufrufe (praktisch nie) | beibehalten |
 | 5 | R2c | `remove_stale_temps` steigt auch bei `d_type == DT_UNKNOWN` per stat in Unterordner ab (vorher nicht) | nur auf Dateisystemen ohne `d_type` | beibehalten (verhält sich wie upstream auf üblichen Dateisystemen) |

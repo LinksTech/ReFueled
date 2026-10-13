@@ -48,9 +48,11 @@ static pthread_mutex_t lock=PTHREAD_MUTEX_INITIALIZER;
 static ThreadAttr *attributes;
 static GuestThread *threads;
 static _Thread_local GuestThread *current;
-/* refueled: the guest gets the address of this cell (scePthread errno getter, __Error), so it must
- * lie below 1 TiB: it lives in the thread's TCB block (low heap) or, for a thread without a TCB, in
- * a small low-heap cell of its own. */
+static _Thread_local int32_t guest_errno;
+/* refueled: the guest gets the address of the errno cell (scePthread errno getter, __Error), so it
+ * must lie below 1 TiB. Linux (PF_GUEST_ERRNO_IN_TCB 0): guest_errno, as before the port. Windows:
+ * the cell lives in the thread's TCB block (low heap) or, for a thread without a TCB, in a small
+ * low-heap cell of its own. */
 static _Thread_local int32_t *errno_cell;
 static const unsigned char *tls_template;
 static uint64_t tls_filesz, tls_memsz, tls_align=16;
@@ -65,6 +67,7 @@ static void set_gs(void *base) {
     if (r) { fprintf(stderr,"STOP: arch_prctl(ARCH_SET_GS): %s\n",strerror(-r)); exit(21); }
 }
 static int32_t *errno_location(void) {
+    if (!PF_GUEST_ERRNO_IN_TCB) return &guest_errno;
     if (!errno_cell) {
         errno_cell=pf_low_calloc(1,sizeof(int32_t));
         if (!errno_cell) { fputs("Cannot allocate guest errno\n",stderr); exit(1); }
@@ -74,7 +77,7 @@ static int32_t *errno_location(void) {
 /* Build TCB/static TLS for the calling host thread and point GS at it. */
 static void attach(GuestThread *t) {
     uint64_t offset=tls_offset();
-    size_t total=offset+256+16;               /* 256 bytes of TCB, then the errno cell */
+    size_t total=offset+256+(PF_GUEST_ERRNO_IN_TCB ? 16 : 0); /* 256 bytes of TCB, then the errno cell */
     unsigned char *block=pf_low_aligned_alloc(64,(total+63)&~(size_t)63);
     if (!block) { fputs("Cannot allocate guest TLS\n",stderr); exit(1); }
     memset(block,0,total);
@@ -85,7 +88,7 @@ static void attach(GuestThread *t) {
     tcb[1]=(uint64_t)(uintptr_t)dtv;         /* tcb_dtv (static module only) */
     tcb[2]=(uint64_t)(uintptr_t)t;           /* tcb_thread */
     t->tls_block=block; t->tcb=tcb;
-    if (!errno_cell) errno_cell=(int32_t *)(void *)((unsigned char *)tcb+256);
+    if (PF_GUEST_ERRNO_IN_TCB && !errno_cell) errno_cell=(int32_t *)(void *)((unsigned char *)tcb+256);
     set_gs(tcb);
     current=t;
 }

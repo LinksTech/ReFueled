@@ -1,6 +1,6 @@
 # ReFueled – Schnittstellen (Vertrag)
 
-Stand 2026-10-13, Version **IF-10** (eingefroren seit IF-2, Paket F1). Die Header unter `src/platform/` sind die
+Stand 2026-10-13, Version **IF-11** (eingefroren seit IF-2, Paket F1). Die Header unter `src/platform/` sind die
 verbindliche Fassung. Dieses Dokument erklärt sie, ordnet jede Funktion den heutigen
 Linux-Fundstellen zu und protokolliert Änderungen (§6). **Ändern darf sie nur Opus.**
 
@@ -175,3 +175,4 @@ sigaction-Flags je Signal wie bisher (SIGTRAP mit `SA_NODEFER`). Der Dispatcher 
 | IF-8 | 2026-10-13 | `pf_random_bytes` (getrandom-Schleife / BCryptGenRandom), `pf_cpu_times(thread, *user_ns, *system_ns)` (getrusage SELF/THREAD / GetProcess-/GetThreadTimes) in pf_process.h; `pf_current_cpu` (sched_getcpu / GetCurrentProcessorNumber) in pf_thread.h. MSVC-Lauf test_time 32 grün | Bedarf aus R1 (kern.arandom, sceKernelGetRandomNumber, getrusage, get_current_cpu) |
 | IF-9 | 2026-10-13 | `PfStat` + `pf_fs_stat`/`pf_fs_fstat` (pf_fs.h; Linux: Felder 1:1 aus stat/fstat wie convert_stat sie las, Windows: GetFileInformationByHandle), Makro `PF_DIRENT_TYPE(entry)` (Linux d_type; Windows-Gap: DT_UNKNOWN → stat-Rückfall). MSVC-Lauf test_time 39 grün | runtime_file.c/runtime_savedata.c ohne Windows-Stub-Wände (R2c) |
 | IF-10 | 2026-10-13 | `pf_dump_signal_install(dump, user)` und `pf_dump_other_threads()` neu (pf_exception.h; Linux: alter SIGUSR2-Handler und alte Watchdog-Schleife wörtlich, Windows: Callback + Abtasten je Thread). `pf_thread_sample` unter Linux wieder SIGPROF und asynchron (Vertrag: `user` muss den Aufruf überleben), unter Windows synchron wie bisher; SIGRTMIN+2 entfällt. MSVC-Zwischenlauf test_dump 9 grün; test_thread angepasst (wartet auf asynchrone Abtastung) | Rückweg D20, Freigabe PL 2026-10-13: Linux-Verhalten wie Upstream |
+| IF-11 | 2026-10-13 | `PF_LOW_HEAP_SIZE` und `PF_GUEST_ERRNO_IN_TCB` in pf_memory.h (Windows 512 MiB / 1, Linux 0 / 0); runtime_memory.c nimmt `LOW_HEAP_SIZE` daraus, runtime_thread.c legt die errno-Zelle nur unter Windows in den TCB-Block. MSVC-Prüfung der Windows-Werte (LOW_MAP_END = 0xFE0000000 wie vorher) grün | D21 Nr. 1/2: Linux wieder wie vor dem Port (PL 2026-10-13) |

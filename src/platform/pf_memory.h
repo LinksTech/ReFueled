@@ -113,6 +113,21 @@ void *pf_low_calloc(size_t count, size_t size);
 void *pf_low_aligned_alloc(size_t alignment, size_t size);
 void pf_low_free(void *pointer);
 
+/* Needed only on Windows, where the C heap, the exe's _Thread_local data and host thread stacks
+ * lie above 1 TiB; on Linux they lie below it already, so the runtime keeps its pre-port layout
+ * there (IF-11, ARCHITECTURE.md D21).
+ * PF_LOW_HEAP_SIZE: bytes at the top of the low region that go to pf_low_heap_init and are kept out
+ * of runtime_low_map (Linux 0: runtime_low_map uses the whole low region, as before).
+ * PF_GUEST_ERRNO_IN_TCB: the guest errno cell lives in the TCB block from pf_low_aligned_alloc
+ * (Linux 0: a _Thread_local cell as before, in glibc's static TLS on the thread's low stack). */
+#ifdef _WIN32
+#define PF_LOW_HEAP_SIZE (UINT64_C(512) << 20)
+#define PF_GUEST_ERRNO_IN_TCB 1
+#else
+#define PF_LOW_HEAP_SIZE UINT64_C(0)
+#define PF_GUEST_ERRNO_IN_TCB 0
+#endif
+
 /* ---- Fault-free access to memory that may be unmapped --------------------------------------- */
 
 /* Copies up to `size` bytes from `source` into `destination` without faulting
