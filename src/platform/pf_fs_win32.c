@@ -11,6 +11,7 @@
 #define WIN32_LEAN_AND_MEAN
 #endif
 #include <windows.h>
+#include <io.h>
 
 static int pf_error(DWORD e) {
     switch (e) {
@@ -160,4 +161,51 @@ int pf_fs_stamp(const char *path, int64_t *mtime_ns, uint64_t *size) {
     if (mtime_ns) *mtime_ns = (ticks - INT64_C(116444736000000000)) * 100;
     if (size) *size = ((uint64_t)data.nFileSizeHigh << 32) | data.nFileSizeLow;
     return 0;
+}
+
+static void split_filetime(FILETIME t, int64_t *sec, int64_t *nsec) {
+    const int64_t ticks = (int64_t)((((uint64_t)t.dwHighDateTime) << 32) | t.dwLowDateTime) - INT64_C(116444736000000000);
+    *sec = ticks / 10000000;
+    *nsec = (ticks % 10000000) * 100;
+    if (*nsec < 0) { *nsec += 1000000000; *sec -= 1; }
+}
+
+static int stat_handle(HANDLE handle, PfStat *out) {
+    BY_HANDLE_FILE_INFORMATION info;
+    if (!GetFileInformationByHandle(handle, &info)) return PF_EIO;
+    const int directory = (info.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0;
+    out->dev = info.dwVolumeSerialNumber;
+    out->ino = ((uint64_t)info.nFileIndexHigh << 32) | info.nFileIndexLow;
+    out->nlink = info.nNumberOfLinks;
+    out->size = directory ? 0 : ((uint64_t)info.nFileSizeHigh << 32) | info.nFileSizeLow;
+    out->blocks = (out->size + 511) / 512;
+    out->mode = directory ? (0040000u | 0755u) : (0100000u | ((info.dwFileAttributes & FILE_ATTRIBUTE_READONLY) ? 0444u : 0644u));
+    out->blksize = 4096;
+    split_filetime(info.ftLastAccessTime, &out->atime_sec, &out->atime_nsec);
+    split_filetime(info.ftLastWriteTime, &out->mtime_sec, &out->mtime_nsec);
+    split_filetime(info.ftLastWriteTime, &out->ctime_sec, &out->ctime_nsec); /* no status-change time in this API */
+    return 0;
+}
+
+int pf_fs_stat(const char *path, PfStat *out) {
+    if (!path || !out) return PF_EINVAL;
+    int error = 0;
+    wchar_t *wide = to_wide(path, &error);
+    if (!wide) return error;
+    HANDLE handle = CreateFileW(wide, 0, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, NULL, OPEN_EXISTING,
+                                FILE_FLAG_BACKUP_SEMANTICS, NULL); /* also opens directories; follows links like stat */
+    const DWORD last = handle == INVALID_HANDLE_VALUE ? GetLastError() : 0;
+    free(wide);
+    if (handle == INVALID_HANDLE_VALUE)
+        return last == ERROR_FILE_NOT_FOUND || last == ERROR_PATH_NOT_FOUND ? PF_ENOENT : last == ERROR_ACCESS_DENIED ? PF_EACCES : PF_EIO;
+    const int result = stat_handle(handle, out);
+    CloseHandle(handle);
+    return result;
+}
+
+int pf_fs_fstat(int fd, PfStat *out) {
+    if (!out) return PF_EINVAL;
+    const intptr_t handle = _get_osfhandle(fd);
+    if (handle == -1) return PF_EINVAL;
+    return stat_handle((HANDLE)handle, out);
 }

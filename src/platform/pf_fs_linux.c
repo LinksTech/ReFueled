@@ -56,3 +56,27 @@ int pf_fs_rename_replace(const char *from, const char *to) {
     if (!from || !to) return PF_EINVAL;
     return rename(from, to) == 0 ? 0 : pf_errno(errno);
 }
+
+/* runtime_file.c convert_stat: the fields it read from struct stat. */
+static int to_pf_stat(int result, const struct stat *s, PfStat *out) {
+    if (result != 0) return errno == ENOENT ? PF_ENOENT : errno == EACCES ? PF_EACCES : PF_EIO;
+    out->dev = (uint64_t)s->st_dev; out->ino = (uint64_t)s->st_ino; out->nlink = (uint64_t)s->st_nlink;
+    out->size = (uint64_t)s->st_size; out->blocks = (uint64_t)s->st_blocks;
+    out->mode = (uint32_t)s->st_mode; out->blksize = (uint32_t)s->st_blksize;
+    out->atime_sec = s->st_atim.tv_sec; out->atime_nsec = s->st_atim.tv_nsec;
+    out->mtime_sec = s->st_mtim.tv_sec; out->mtime_nsec = s->st_mtim.tv_nsec;
+    out->ctime_sec = s->st_ctim.tv_sec; out->ctime_nsec = s->st_ctim.tv_nsec;
+    return 0;
+}
+
+int pf_fs_stat(const char *path, PfStat *out) {
+    struct stat s;
+    if (!path || !out) return PF_EINVAL;
+    return to_pf_stat(stat(path, &s), &s, out);
+}
+
+int pf_fs_fstat(int fd, PfStat *out) {
+    struct stat s;
+    if (!out) return PF_EINVAL;
+    return to_pf_stat(fstat(fd, &s), &s, out);
+}

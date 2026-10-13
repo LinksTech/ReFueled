@@ -130,6 +130,8 @@ PF_GAP_STATIC_ASSERT(sizeof(off_t) == 8, "refueled: define _FILE_OFFSET_BITS=64 
 #define CLOCK_REALTIME_COARSE CLOCK_REALTIME
 #endif
 
+/* MinGW-w64's struct dirent has no d_type: entries report DT_UNKNOWN (pf_fs.h PF_DIRENT_TYPE). */
+#define PF_DIRENT_TYPE(entry) ((void)(entry), DT_UNKNOWN)
 /* d_type values (Linux numbering, as the common code maps them to the guest). */
 #ifndef DT_UNKNOWN
 #define DT_UNKNOWN 0

@@ -81,6 +81,21 @@ int main(void) {
     }
     CHECK(pf_fs_stamp(path, (int64_t *)&m2, (uint64_t *)&s2) == 0 && s2 == 6 && m2 > m1);
     CHECK(pf_fs_stamp("pf_test_time_missing.tmp", NULL, NULL) == PF_ENOENT);
+    /* IF-9: PfStat of the file and of the current directory. */
+    PfStat st;
+    CHECK(pf_fs_stat(path, &st) == 0 && st.size == 6 && (st.mode & 0170000) == 0100000 && st.nlink >= 1);
+    CHECK(st.mtime_sec * 1000000000LL + st.mtime_nsec == m2 && st.mtime_nsec >= 0 && st.mtime_nsec < 1000000000);
+    CHECK(st.blocks == 1 && st.blksize > 0);
+    CHECK(pf_fs_stat(".", &st) == 0 && (st.mode & 0170000) == 0040000);
+    CHECK(pf_fs_stat("pf_test_time_missing.tmp", &st) == PF_ENOENT);
+    f = fopen(path, "rb");
+    if (f) {
+        PfStat by_fd;
+        CHECK(pf_fs_fstat(fileno(f), &by_fd) == 0 && by_fd.size == 6);
+        PfStat by_path;
+        CHECK(pf_fs_stat(path, &by_path) == 0 && by_path.ino == by_fd.ino && by_path.dev == by_fd.dev);
+        fclose(f);
+    }
     remove(path);
 
     /* IF-8: random bytes, CPU times, current CPU (pf_thread.h needs pthread.h, so only the process
