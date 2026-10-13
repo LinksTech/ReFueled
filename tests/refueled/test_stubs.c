@@ -1,8 +1,7 @@
 /* SPDX-License-Identifier: GPL-2.0-or-later */
-/* refueled: calls every Windows stub once and checks the PF_ENOSYS / NULL / 0 result.
- * The once-per-function stderr notice is checked by eye (each name appears once in the output
- * although pf_not_implemented is called twice for the probe name). pf_longjmp_impl is not called
- * (abort) and neither is pf_exit_now (ends the process). */
+/* refueled: the Windows functions that are still stubs return PF_ENOSYS / NULL and say so once;
+ * pf_not_implemented reports a name only once (checked by eye: the probe name appears once in the
+ * output although it is reported twice). */
 #include <stdio.h>
 #include <string.h>
 #include "platform/platform.h"
@@ -25,38 +24,13 @@ int main(void) {
     CHECK(pf_not_implemented("test_stubs_probe") == PF_ENOSYS);
     CHECK(pf_not_implemented("test_stubs_probe") == PF_ENOSYS); /* second call: no second notice */
 
-    /* pf_tls: implemented (K4), tested in test_tls.c. */
-
-    /* pf_exception: implemented (K7), tested in test_exception.c. */
-
-    CHECK(pf_thread_create_on_stack(NULL, NULL, NULL, NULL, 0) == PF_ENOSYS);
-    CHECK(pf_call_guest_on_stack(NULL, 0, 0, NULL, NULL) == 0);
-    CHECK(pf_thread_get_stack(NULL, NULL) == PF_ENOSYS);
-    CHECK(pf_thread_id() == 0);
-    CHECK(pf_thread_set_name(NULL) == PF_ENOSYS);
-    CHECK(pf_thread_get_name(NULL, 0) == PF_ENOSYS);
-    CHECK(pf_thread_set_idle_priority() == PF_ENOSYS);
-    CHECK(pf_cpu_count_allowed() == PF_ENOSYS);
-    CHECK(pf_thread_cpu_time_ns(NULL) == PF_ENOSYS);
-    CHECK(pf_threads_list(NULL, NULL) == PF_ENOSYS);
-    CHECK(pf_thread_sample(0, NULL, NULL) == PF_ENOSYS);
-
-    CHECK(pf_fs_remove_tree(NULL) == PF_ENOSYS);
-    CHECK(pf_fs_rename_replace(NULL, NULL) == PF_ENOSYS);
-
-    CHECK(pf_process_id() == 0);
-    CHECK(pf_executable_base() == 0);
-    CHECK(pf_symbolize(0, NULL) == PF_ENOSYS);
-    CHECK(pf_backtrace(NULL, 0) == PF_ENOSYS);
-    CHECK(pf_describe_mapping(0, NULL, 0) == PF_ENOSYS);
-    CHECK(pf_process_memory(NULL, NULL) == PF_ENOSYS);
+    /* Implemented since F2: pf_tls (K4), pf_exception (K7), pf_thread + pf_jmp (K6), pf_fs (R2),
+     * pf_process (R3), pf_memory (K1), pf_low_* (LH); each has its own test. Not called here:
+     * several have side effects (pf_restart_through_launcher starts a new process). What is
+     * still a stub on Windows: */
     CHECK(pf_gpu_memory_in_use(NULL) == PF_ENOSYS);
-    CHECK(pf_restart_through_launcher() == PF_ENOSYS);
-
-    {
-        pf_jmp_buf env;
-        CHECK(pf_setjmp_impl(env) == 0);
-    }
+    CHECK(pf_handle_map_fixed(PF_MEM_HANDLE_NONE, 0, 0, 0, 0) == PF_ENOSYS);
+    CHECK(pf_handle_map(PF_MEM_HANDLE_NONE, 0, 0, 0) == NULL);
 
     CHECK(pf_init() == 0); /* pf_tls_init is real since K4 */
 

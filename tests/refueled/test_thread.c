@@ -10,10 +10,12 @@
 #include <stdio.h>
 #include <string.h>
 #include <time.h>
-#ifndef _WIN32
+#ifdef _WIN32
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+#else
 #include <sys/mman.h>
 #include <unistd.h>
-#include "platform/pf_linux_internal.h"
 #endif
 #include "platform/pf_thread.h"
 #include "platform/pf_tls.h"
@@ -37,8 +39,7 @@ static void *map_stack(size_t size) {
     void *memory = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
     return memory == MAP_FAILED ? NULL : memory;
 #else
-    (void)size;
-    return NULL;
+    return VirtualAlloc(NULL, size, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
 #endif
 }
 
@@ -162,12 +163,8 @@ typedef struct {
 
 static void sample_callback(const PfContext *context, void *user) {
     Sampled *sampled = user;
-#ifndef _WIN32
-    sampled->rip = (uint64_t)context->native->uc_mcontext.gregs[REG_RIP];
-    sampled->rsp = (uint64_t)context->native->uc_mcontext.gregs[REG_RSP];
-#else
-    (void)context;
-#endif
+    sampled->rip = pf_context_get(context, PF_REG_RIP);
+    sampled->rsp = pf_context_get(context, PF_REG_RSP);
     sampled->tid = pf_thread_id();
     sampled->calls++;
 }
@@ -241,7 +238,11 @@ int main(void) {
 
         CHECK(pf_thread_id() != 0);
         CHECK(worker.tid != 0 && worker.tid != pf_thread_id());
+#ifdef _WIN32
+        CHECK(strcmp(worker.name, "pf_test_worker_long_name") == 0); /* Windows keeps the whole name */
+#else
         CHECK(strcmp(worker.name, "pf_test_worker_") == 0); /* cut to 15 bytes */
+#endif
 
         CHECK(pf_thread_set_name("main_pf_test") == 0);
         CHECK(pf_thread_get_name(name, sizeof name) == 0 && strcmp(name, "main_pf_test") == 0);
@@ -249,7 +250,7 @@ int main(void) {
         listing.wanted = worker.tid;
         CHECK(pf_threads_list(list_visit, &listing) >= 2);
         CHECK(listing.found);
-        CHECK(strcmp(listing.name, "pf_test_worker_") == 0);
+        CHECK(strcmp(listing.name, worker.name) == 0);
 
         /* TLS: the worker's value is its own, the main thread's another */
         CHECK(worker.tls_got == worker.tls_set);
@@ -293,10 +294,12 @@ int main(void) {
         while (!atomic_load(&spinner.ready)) sleep_ms(1);
         CHECK(pf_thread_sample(spinner.tid, sample_callback, &sampled) == 0);
         CHECK(sampled.calls == 1);
-#ifndef _WIN32
         CHECK(sampled.rip != 0);
         CHECK(sampled.rsp >= spinner.stack_low && sampled.rsp < spinner.stack_high);
-        CHECK(sampled.tid == spinner.tid); /* the callback ran on the target thread */
+#ifndef _WIN32
+        CHECK(sampled.tid == spinner.tid); /* Linux: the callback ran on the target thread */
+#else
+        CHECK(sampled.tid == pf_thread_id()); /* Windows: on the sampling thread */
 #endif
         CHECK(pf_thread_sample(spinner.tid, sample_callback, &sampled) == 0 && sampled.calls == 2);
         CHECK(pf_thread_sample(0x7ffffff0u, sample_callback, &sampled) == PF_ENOENT);
@@ -315,7 +318,11 @@ int main(void) {
         range.start = code;
         range.size = sizeof code;
         CHECK(pf_tls_patch_image(&range, 1) == 2);
+#ifndef _WIN32
         CHECK(memcmp(code + 5, load, sizeof load) == 0); /* Linux changes nothing */
+#else
+        CHECK(memcmp(code + 5, load, 5) == 0 && memcmp(code + 5, load, sizeof load) != 0); /* slot displacement */
+#endif
     }
 
     /* Idle priority last: it lowers this thread */
