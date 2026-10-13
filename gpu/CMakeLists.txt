@@ -10,6 +10,18 @@ if (NOT CMAKE_BUILD_TYPE)
 endif()
 # Frame pointers keep the loader's thread dumps (watchdog, SIGUSR2 sampling) walkable.
 add_compile_options(-fno-omit-frame-pointer)
+if(WIN32)
+# refueled: Windows build (MSYS2 CLANG64, MinGW-w64 + clang + lld, docs/refueled/ARCHITECTURE.md D1/D11).
+# Windows 10 RS5 target and header hygiene as in shadPS4's top-level CMakeLists.txt. Set before the
+# add_subdirectory() calls so sirit and fsr-vulkan see the same definitions.
+add_compile_definitions(NOMINMAX WIN32_LEAN_AND_MEAN
+    NTDDI_VERSION=0x0A000006 _WIN32_WINNT=0x0A00 WINVER=0x0A00)
+# 64-bit off_t: MinGW's fseeko/ftello take a 32-bit off_t otherwise (common/io_file.cpp seeks with
+# s64 offsets). Same flag as F3's build-windows.sh.
+add_compile_definitions(_FILE_OFFSET_BITS=64)
+# refueled: CodeView debug info so that the executable can carry a PDB (linker: --pdb=).
+add_compile_options(-gcodeview)
+endif()
 
 # bbport: link-time optimization (BB_LTO, default on) and profile-guided optimization
 # (BB_PGO: off, generate = instrumented build writing into BB_PGO_DIR, use = build with that
@@ -49,7 +61,13 @@ find_package(VulkanMemoryAllocator CONFIG REQUIRED)
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(XXHASH REQUIRED IMPORTED_TARGET libxxhash)
 pkg_check_modules(SDL3 REQUIRED IMPORTED_TARGET sdl3)
+if(NOT WIN32)
 pkg_check_modules(X11 REQUIRED IMPORTED_TARGET x11)
+else()
+# refueled: no X11 on Windows. An empty stand-in keeps the shared bbgpu link line below textually
+# identical to Linux; code that really needs X11 headers fails to compile (S3/V* territory).
+add_library(PkgConfig::X11 INTERFACE IMPORTED)
+endif()
 find_package(miniz REQUIRED)
 find_package(Zydis REQUIRED)
 find_program(GLSLANG_COMPILER NAMES glslang glslangValidator REQUIRED)
@@ -119,7 +137,14 @@ set(COMMON
 file(GLOB AVPLAYER CONFIGURE_DEPENDS shadps4/core/libraries/avplayer/*.cpp)
 pkg_check_modules(FFMPEG REQUIRED IMPORTED_TARGET libavformat libavcodec libavutil libswscale libswresample)
 file(GLOB SHIM_SOURCES CONFIGURE_DEPENDS shim/*.cpp shim/*/*.cpp)
-add_library(bbgpu SHARED ${VIDEO_CORE} ${RECOMPILER} ${COMMON} ${SHIM_SOURCES}
+if(WIN32)
+# refueled: D11 - bbgpu is a static library inside sacredfire.exe on Windows; it stays a shared
+# library on Linux (runtime symbols resolve against the executable there).
+set(BB_GPU_LIB_TYPE STATIC)
+else()
+set(BB_GPU_LIB_TYPE SHARED)
+endif()
+add_library(bbgpu ${BB_GPU_LIB_TYPE} ${VIDEO_CORE} ${RECOMPILER} ${COMMON} ${SHIM_SOURCES}
     shadps4/core/libraries/gnmdriver/gnmdriver.cpp
     shadps4/core/libraries/videoout/driver.cpp shadps4/core/libraries/videoout/video_out.cpp
     shadps4/core/libraries/kernel/equeue.cpp ${AVPLAYER}
@@ -135,10 +160,12 @@ target_include_directories(bbgpu PRIVATE third_party/imgui third_party/imgui/bac
 # in the global symbol scope; a Vulkan layer carrying its own Dear ImGui without -Bsymbolic
 # (vkShade 0.1) had its ImGui_ImplVulkan_Init bound to this copy, which called the Vulkan loader
 # with the layer's down-chain physical device handle ("Invalid physicalDevice", abort).
+if(NOT WIN32)
 set_source_files_properties(third_party/imgui/imgui.cpp third_party/imgui/imgui_draw.cpp
     third_party/imgui/imgui_tables.cpp third_party/imgui/imgui_widgets.cpp
     third_party/imgui/backends/imgui_impl_vulkan.cpp PROPERTIES
     COMPILE_OPTIONS "-fvisibility=hidden;-fvisibility-inlines-hidden")
+endif()
 target_compile_definitions(bbgpu PRIVATE IMGUI_IMPL_VULKAN_NO_PROTOTYPES
     BB_FONT_PATH="${CMAKE_CURRENT_SOURCE_DIR}/third_party/fonts/DejaVuSans.ttf")
 set_source_files_properties(shim/bbport_overlay.cpp PROPERTIES
@@ -146,11 +173,24 @@ set_source_files_properties(shim/bbport_overlay.cpp PROPERTIES
 target_include_directories(bbgpu PRIVATE shim shadps4 ${SHADER_INCLUDE} third_party/gcn/include third_party/half/include)
 target_compile_definitions(bbgpu PRIVATE BOOST_ASIO_STANDALONE NDEBUG)
 target_compile_options(bbgpu PRIVATE -Wno-deprecated-declarations -Wno-missing-field-initializers)
+if(NOT WIN32)
 # Loaded with bb-probe at startup (DT_NEEDED, never dlopen): thread_local access without a
 # TLS descriptor call (_dl_tlsdesc_return was ~2% of the draw recording thread).
 target_compile_options(bbgpu PRIVATE -ftls-model=initial-exec)
 # Runtime symbols (runtime_memory_*, runtime_process_*) resolve against bb-probe.
 target_link_options(bbgpu PRIVATE -Wl,--allow-shlib-undefined)
+else()
+# refueled: static library, so no ELF TLS model and no shared-library undefined-symbol policy;
+# runtime_* symbols are resolved when sacredfire.exe is linked. System libraries (static library:
+# they travel to the executable link line as usage requirements):
+#   shell32          SHGetFolderPath in common/path_util.cpp
+#   ws2_32, mswsock  boost::asio::io_context (steady_timer in kernel/equeue.cpp); asio's
+#                    `#pragma comment(lib, ...)` is MSVC-only, MinGW needs them explicitly
+target_link_libraries(bbgpu PUBLIC shell32 ws2_32 mswsock)
+# common/io_file.cpp (IOFile::Unlink) references the Nt* function pointers that common/ntapi.cpp
+# defines; the Linux source list does not need that file.
+target_sources(bbgpu PRIVATE shadps4/common/ntapi.cpp)
+endif()
 target_link_libraries(bbgpu PRIVATE ffx-vulkan::portable ffx-vulkan::fsr4-v07-vulkan)
 target_link_libraries(bbgpu PUBLIC Vulkan::Headers fmt::fmt Boost::headers magic_enum::magic_enum
     tsl::robin_map GPUOpen::VulkanMemoryAllocator PkgConfig::XXHASH PkgConfig::SDL3 PkgConfig::X11 PkgConfig::FFMPEG miniz::miniz Zydis::Zydis sirit)
