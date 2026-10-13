@@ -85,6 +85,11 @@ ungleich "keine" = Entscheidung Opus, Meldung an die Projektleitung im nächsten
 | R2c | runtime_file.c/runtime_savedata.c ohne Windows-Stub-Wände (PfStat, PF_DIRENT_TYPE) | diese zwei Dateien | IF-9, F6 | S | done als Code (Linux-Review); Kompilat CLANG64 offen |
 | F3b | build-windows.sh baut sacredfire.exe (Runtime, Loader, LibAtrac9, GPU-Lib per CMake, UTF-8-Manifest, Link) | build-windows.sh, WIN32_SOURCES.txt, packaging/windows/* | F3, F5 | S | done als Code (0733127); --keep-going-Zählmodus ergänzt; ungetestet bis CLANG64 |
 | T2c | run-windows.sh (Ablauf wie run.sh, Löschschutz für den Spielordner, CRLF-feste ini-Abfragen) | run-windows.sh | T2a | S | done (9bd1997; Selbsttest 11/11, BB_RESTART_COMMAND) |
+| TLS | Statische TLS-Analyse: alle fs:/gs:-Zugriffe in eboot + Modulen gegen link_*.py-Umschreibung und pf_tls_patch_image (nur Zählungen/Offsets) | tools/tls_scan.py, audit/TLS-SCAN.md | – (mit 1.21 wiederholen) | S | in_progress |
+| DBG | M2-Debug: BB_CRASH_DETAIL (Register, Gast-Stack, rbp-Kette, Image-Offsets), BB_TRACE_IMPORTS (Thunks), Anleitung DEBUG-M2.md; Linux ohne Schalter unverändert | src/probe.c (Fault-Bericht, Bindungsschleife), run-windows.sh, DEBUG-M2.md | – | S (O-Review) | in_progress |
+| HYP | Hypothesen-Protokoll M2: bis 3 Hypothesen parallel in eigenen Worktrees | M2-HYPOTHESEN.md | – | O | done (Regel) |
+| M3S | M3-Strang parallel zu M1/M2: G2/G3-Rest, Fenster, Vulkan-Init mit Testbild | gpu/** (je Teilpaket) | erster vollständiger Build | S je Teilpaket, O Merge | blocked (CLANG64) |
+| ML0 | Mod-Loader-Architekturentwurf (Overlay, Hooks, Lade-API) | MODLOADER.md | – | O | done (Entwurf) |
 
 ### Später / bei Bedarf
 | ID | Beschreibung | Abhängig von | Umfang | Modell | Status |

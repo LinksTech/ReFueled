@@ -53,11 +53,17 @@ ausgeführt von", Anzahl Fix-Runden, Abweichungen von D1, Testergebnis. Danach
 `sacredfire.exe --vulkan-only` (Vulkan-Rauchtest, Abbruchkriterium D1 "Absturz beim ersten
 Vulkan-Init").
 
-## 5. Danach
-- T1: bestehende `tests/test_*.c` unter Windows (test_pad: setenv/mkstemp/TMP-Pfade).
-- M1 (sobald Dump 1.21 und `game_check.py` sauber): `run-windows.sh` bis `--list-imports`;
-  Belege: "Mapped … bytes" mit Image bei 0x800000000, Import-Zusammenfassung gleich der
-  Linux-Referenz (Referenzzahlen aus einem früheren Linux-Lauf bzw. CI).
+## 5. Danach: zwei Stränge gleichzeitig (Vorgabe Projektleitung 2026-10-13)
+Direkt nach dem ersten vollständigen Build laufen **beide Stränge parallel**, keiner wartet auf
+den anderen:
+
+| Strang | Inhalt | Wer | Abnahme |
+|---|---|---|---|
+| **M1/M2** (Spiel) | T1; M1 (sobald Dump 1.21 und `game_check.py` sauber): `run-windows.sh` bis `--list-imports`, Belege "Mapped … bytes" bei 0x800000000 und Import-Zusammenfassung wie die Linux-Referenz; dann M2 (Init bis zum ersten GPU-Submit) mit Crash-Detail/Import-Trace (DEBUG-M2.md) und Hypothesen-Protokoll (M2-HYPOTHESEN.md). Bei M1/M2 außerdem "guest threads created=" notieren (Belegung des Low-Bereichs, D21) | Opus + Sonnet je Hypothese | M1, M2 |
+| **M3-Strang** (Grafik ohne Spiel) | Rest von G2/G3 bis zur lauffähigen GPU-Bibliothek, Fenster (SDL3, `window.cpp` Win32-Zweig, S3), Vulkan-Init (`sacredfire.exe --vulkan-only`, Instanz, Gerät, Swapchain, Present eines Testbilds), Shader-Cache-Pfade unter Windows, Overlay-Schrift (incbin COFF) | Sonnet je Teilpaket (G2a–G3c, S3, V1–V3), Opus Merge | Testbild im Fenster, Vulkan-Validierung ohne Fehler, Fenster schließen ohne Absturz |
+
+Der M3-Strang braucht kein Spiel und keinen Dump; er läuft auch, solange 1.21 fehlt. Ergebnisse
+fließen in M2 ein, sobald dort der erste GPU-Submit erreicht wird.
 
 ## Anhang: GPU-Teilpakete (audit/GPU-MINGW.md §5)
 
