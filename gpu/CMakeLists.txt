@@ -278,3 +278,14 @@ add_executable(fsr4-bench EXCLUDE_FROM_ALL tools/fsr4_bench.cpp
     shadps4/video_core/renderer_vulkan/fsr411/fsr411.cpp)
 target_include_directories(fsr4-bench PRIVATE shadps4/video_core/renderer_vulkan/fsr411)
 target_link_libraries(fsr4-bench PRIVATE ffx-vulkan::fsr4-v07-vulkan ffx-vulkan::fsr4-v07-assets Vulkan::Vulkan)
+
+if(WIN32)
+# refueled: M3S1 - window + Vulkan present test of the GPU library without a game
+# (ninja -C out/win/gpu m3-present). libpf.a: the platform layer the shims call.
+add_executable(m3-present EXCLUDE_FROM_ALL ../tests/refueled/m3_present.cpp)
+target_include_directories(m3-present PRIVATE shim shadps4 ${SHADER_INCLUDE} third_party/gcn/include ../src .. .)
+target_compile_options(m3-present PRIVATE -UNDEBUG -Wno-deprecated-declarations)
+target_compile_definitions(m3-present PRIVATE BOOST_ASIO_STANDALONE)
+target_link_libraries(m3-present PRIVATE bbgpu ${CMAKE_CURRENT_SOURCE_DIR}/../out/win/libpf.a pthread kernel32 mincore)
+add_dependencies(m3-present host_shaders)
+endif()
