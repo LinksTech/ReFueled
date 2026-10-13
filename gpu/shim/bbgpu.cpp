@@ -4,7 +4,8 @@
 #include "bbport_overlay.h"
 #include "bbport_settings.h"
 #include "bbport_copy.h"
-#include <sys/resource.h>
+#include <cstdlib>
+#include "platform/pf_exception.h" // refueled: PfContext
 #include "bbport_free_check.h"
 #include "bbport_clobber.h"
 #include "bbport_toggles.h"
@@ -264,7 +265,14 @@ extern "C" int bbgpu_init(const BbGpuConfig* config) {
     StartProfileWriter();
 #endif
     g_sdk_version = config->sdk_version;
-    if (config->user_dir) setenv("BB_GPU_USER_DIR", config->user_dir, 0);
+    if (config->user_dir) {
+#ifdef _WIN32
+        // refueled: setenv(name, value, 0) keeps an existing value; _putenv_s always replaces.
+        if (!std::getenv("BB_GPU_USER_DIR")) _putenv_s("BB_GPU_USER_DIR", config->user_dir);
+#else
+        setenv("BB_GPU_USER_DIR", config->user_dir, 0);
+#endif
+    }
     Core::Emulator::FillElfInfo(*config);
     const std::string title = config->title ? config->title : "SacredFire";
     const s32 width = config->width, height = config->height;
@@ -319,19 +327,19 @@ extern "C" uintptr_t bbgpu_resolve(const char* scoped_nid) {
     return 0;
 }
 
-extern "C" int bbgpu_handle_fault(void* ucontext, void* address) {
+extern "C" int bbgpu_handle_fault(PfContext* context, void* address) { // refueled: PfContext (was ucontext)
     // SacredFire issue #2, BB_COPY_PROTECT=1: a write into the read-only copy of a submitted
     // command buffer. Reported here; fatal, so that the runtime prints the writer's call chain.
-    if (BbClobber::OnFault(ucontext, reinterpret_cast<std::uint64_t>(address))) {
+    if (BbClobber::OnFault(context, reinterpret_cast<std::uint64_t>(address))) {
         return 0;
     }
     // BB_LABEL_TRAP (diagnostic): its read-only label pages first. Not passed on to GPU page
     // tracking (a write fault drains the draw pipe: thousands a second would change the timing
     // under test); label pages are not expected to be GPU-tracked.
-    if (BbFreeCheck::OnTrapFault(ucontext, reinterpret_cast<std::uint64_t>(address))) {
+    if (BbFreeCheck::OnTrapFault(context, reinterpret_cast<std::uint64_t>(address))) {
         return 1;
     }
-    if (Core::Signals::Instance()->DispatchAccessViolation(ucontext, address)) {
+    if (Core::Signals::Instance()->DispatchAccessViolation(context, address)) {
         return 1;
     }
     return BbFreeCheck::OnStaleTrapFault(reinterpret_cast<std::uint64_t>(address)) ? 1 : 0;

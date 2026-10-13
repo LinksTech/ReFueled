@@ -10,8 +10,12 @@
 #include <cstring>
 #include <thread>
 #include <vector>
-#include <sys/mman.h>
-#include <unistd.h>
+
+#include "platform/pf_memory.h"
+
+// refueled: the generated stubs call BbGnmEnter/BbGnmLeave with System V registers (rdi, rsi, rdx);
+// on Windows the default would be the Win64 convention. No effect on Linux (same as PS4_SYSV_ABI).
+#define BB_SYSV_ABI __attribute__((sysv_abi))
 
 namespace BbGnmHooks {
 namespace {
@@ -45,7 +49,7 @@ constexpr std::size_t CounterStride = 64; // one cache line per counter
 
 u8* stubs = nullptr;
 u64* CounterAt(std::size_t i) {
-    const std::size_t page = std::size_t(sysconf(_SC_PAGESIZE));
+    const std::size_t page = std::size_t(pf_page_size()); // refueled: was sysconf(_SC_PAGESIZE)
     const std::size_t code_bytes = ((Count + 1) * SlotSize + page - 1) / page * page;
     return reinterpret_cast<u64*>(stubs + code_bytes + i * CounterStride);
 }
@@ -53,12 +57,16 @@ u64* CounterAt(std::size_t i) {
 /// A mapping within +-2 GiB of the image text, for rel32 jumps both ways.
 u8* MapNear(unsigned char* image, std::uint64_t image_size, std::size_t size) {
     const u64 base = reinterpret_cast<u64>(image);
+    // refueled: mmap rounded the length up to whole pages; pf_vm_alloc_fixed wants a multiple.
+    const u64 page = pf_page_size();
+    size = (size + page - 1) / page * page;
     for (u64 k = 1; k <= 64; ++k) {
         for (const u64 hint : {base - k * (16ull << 20), base + image_size + k * (16ull << 20)}) {
-            void* p = mmap(reinterpret_cast<void*>(hint), size, PROT_READ | PROT_WRITE,
-                           MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED_NOREPLACE, -1, 0);
-            if (p != MAP_FAILED) {
-                return static_cast<u8*>(p);
+            // refueled: was mmap(hint, ..., MAP_FIXED_NOREPLACE); an occupied address (PF_EEXIST) or
+            // any other failure goes on to the next candidate, as MAP_FAILED did. The hints are
+            // 16 MiB steps, so they are 64 KiB aligned for Windows.
+            if (pf_vm_alloc_fixed(hint, size, PF_PROT_READ | PF_PROT_WRITE) == 0) {
+                return reinterpret_cast<u8*>(hint);
             }
         }
     }
@@ -209,7 +217,7 @@ void Mark(std::uint32_t index, u64 before, u64 after, u64 cb = 0) {
     }
 }
 
-extern "C" void BbGnmEnter(std::uint32_t index, u64 cb, u64* slot) {
+extern "C" BB_SYSV_ABI void BbGnmEnter(std::uint32_t index, u64 cb, u64* slot) {
     __atomic_fetch_add(CounterAt(index), 1, __ATOMIC_RELAXED);
     if (depth == MaxDepth) {
         overflow.fetch_add(1, std::memory_order_relaxed);
@@ -226,7 +234,7 @@ extern "C" void BbGnmEnter(std::uint32_t index, u64 cb, u64* slot) {
     *slot = reinterpret_cast<u64>(exit_thunk);
 }
 
-extern "C" u64 BbGnmLeave() {
+extern "C" BB_SYSV_ABI u64 BbGnmLeave() {
     const Frame f = frames[--depth];
     const bool cb_method = Table[f.index].cb_method;
     if (f.index == trace_index && trace_left.fetch_sub(1, std::memory_order_relaxed) > 0) {
@@ -529,7 +537,7 @@ void PatchImage(unsigned char* image, std::uint64_t size) {
         return;
     }
     const std::size_t stub_bytes = (Count + 1) * SlotSize; // + the shared exit thunk
-    const std::size_t page = std::size_t(sysconf(_SC_PAGESIZE));
+    const std::size_t page = std::size_t(pf_page_size()); // refueled: was sysconf(_SC_PAGESIZE)
     const std::size_t code_bytes = (stub_bytes + page - 1) / page * page;
     const std::size_t map_bytes = code_bytes + Count * CounterStride;
     image_base = reinterpret_cast<u64>(image);
@@ -600,7 +608,7 @@ void PatchImage(unsigned char* image, std::uint64_t size) {
         std::memset(fn + 5, 0xcc, e.prologue_size - 5);
         ++patched;
     }
-    mprotect(stubs, code_bytes, PROT_READ | PROT_EXEC);
+    pf_vm_protect(stubs, code_bytes, PF_PROT_READ | PF_PROT_EXEC); // refueled: was mprotect
     std::printf("Gnm census: %zu of %zu libGnm entry points hooked (%zu do not match the 1.09 eboot)%s\n",
                 patched, Count, mismatched, observe ? "; command buffer methods observed" : "");
     std::thread(ReportLoop).detach();
