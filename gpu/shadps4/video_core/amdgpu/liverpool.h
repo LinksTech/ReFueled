@@ -195,11 +195,9 @@ public:
         return gpu_id;
     }
 
-#ifdef __linux__
-    u32 GetGpuCommandProcessorThreadId() {
+    u32 GetGpuCommandProcessorThreadId() { // refueled: declared on all platforms (rasterizer uses it); gpu_tid is set in Process()
         return gpu_tid;
     }
-#endif
 
 private:
     struct Task {
@@ -343,9 +341,7 @@ private:
     std::condition_variable_any submit_cv;
     std::queue<Common::UniqueFunction<void>> command_queue{};
     std::thread::id gpu_id;
-#ifdef __linux__
-    u32 gpu_tid;
-#endif
+    u32 gpu_tid{}; // refueled: all platforms (was Linux-only); Linux sets it before first use, init only matters elsewhere
     s32 curr_qid{-1};
 };
 

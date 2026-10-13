@@ -912,10 +912,18 @@ void Rasterizer::PostDraw(const Pipeline* pipeline, const PreparedDraw* used_pre
     }
     std::array<u16, AmdGpu::RegDirty::NumBlocks> blocks;
     u32 num_blocks = 0;
+#if defined(_LIBCPP_VERSION) // refueled: _Find_first/_Find_next are libstdc++ extensions
+    for (size_t block = 0; block < dirty.blocks.size(); ++block) { // refueled: libc++ path, same bits in the same ascending order
+        if (dirty.blocks.test(block)) { // refueled: libc++ path
+            blocks[num_blocks++] = static_cast<u16>(block); // refueled: libc++ path
+        }
+    }
+#else // refueled: original libstdc++ code below, unchanged
     for (size_t block = dirty.blocks._Find_first(); block < dirty.blocks.size();
          block = dirty.blocks._Find_next(block)) {
         blocks[num_blocks++] = static_cast<u16>(block);
     }
+#endif // refueled
     const auto stages =
         pipeline ? pipeline->GetStages() : std::span<const Shader::Info* const>{};
     // Constants: copied here into the ring, the recording thread only binds them.
