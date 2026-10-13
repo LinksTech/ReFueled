@@ -4,6 +4,7 @@
 #include <numeric>
 
 #include "common/alignment.h"
+#include "bbport_guest_memory.h" // refueled: BbGuestMemory::PlatformSupported
 #include "common/assert.h"
 #include "video_core/buffer_cache/buffer.h"
 #include "video_core/renderer_vulkan/vk_instance.h"
@@ -111,7 +112,7 @@ void UniqueBuffer::Create(vk::BufferCreateInfo& buffer_ci, MemoryType mem_type,
         const vk::ExternalMemoryBufferCreateInfo external{
             .handleTypes = vk::ExternalMemoryHandleTypeFlagBits::eDmaBufEXT,
         };
-        if (GuestInPlace()) {
+        if (GuestInPlace() && BbGuestMemory::PlatformSupported()) { // refueled: no dma-buf on Windows
             buffer_ci.pNext = &external;
             if (const auto [result, created] = device.createBuffer(buffer_ci);
                 result == vk::Result::eSuccess) {

@@ -6,12 +6,13 @@
 #include <cstdio>
 #include <cstdlib>
 #include <mutex>
-#include <sys/mman.h>
-#include <unistd.h>
+#include "platform/pf_memory.h" // refueled: PfMemHandle, pf_handle_map/pf_handle_close, pf_vm_free
 #include "video_core/renderer_vulkan/vk_instance.h"
 
-extern "C" void runtime_memory_set_guest_chunk_allocator(int (*alloc)(uint64_t phys,
-                                                                      uint64_t size));
+// refueled: PfMemHandle return (was int). src/runtime.h declares this too but is C-only (no extern "C"
+// guards), so the declaration is repeated here word for word.
+extern "C" void runtime_memory_set_guest_chunk_allocator(PfMemHandle (*alloc)(uint64_t phys,
+                                                                              uint64_t size));
 extern "C" void runtime_memory_set_guest_chunk_whole(int whole);
 
 namespace BbGuestMemory {
@@ -39,12 +40,12 @@ std::uint32_t FindType(std::uint32_t bits) {
     return ~0u;
 }
 
-/// The runtime's chunk allocator: a dma-buf fd of `size` bytes of GPU-visible memory, or -1.
-int AllocChunk(u64 phys, u64 size) {
+/// The runtime's chunk allocator: a dma-buf fd of `size` bytes of GPU-visible memory, or PF_MEM_HANDLE_NONE.
+PfMemHandle AllocChunk(u64 phys, u64 size) { // refueled: PfMemHandle (was int)
     {
         std::scoped_lock lk{mutex};
         if (chunk_count == MaxChunks) {
-            return -1;
+            return PF_MEM_HANDLE_NONE; // refueled: was -1 (same value)
         }
     }
     static std::atomic<int> failures{0};
@@ -53,7 +54,7 @@ int AllocChunk(u64 phys, u64 size) {
             std::fprintf(stderr, "Guest memory: %s failed (%s); chunk %#llx stays in the memfd\n",
                          what, vk::to_string(result).c_str(), (unsigned long long)phys);
         }
-        return -1;
+        return PF_MEM_HANDLE_NONE; // refueled: was -1 (same value)
     };
     const vk::ExternalMemoryBufferCreateInfo external{
         .handleTypes = vk::ExternalMemoryHandleTypeFlagBits::eDmaBufEXT,
@@ -118,11 +119,29 @@ int AllocChunk(u64 phys, u64 size) {
                 "%llu MiB so far\n",
                 (unsigned long long)phys, (unsigned long long)(size >> 20),
                 (unsigned long long)(total >> 20));
-    return fd;
+    return (PfMemHandle)fd; // refueled: the dma-buf fd as a handle (Linux: same number)
 }
 } // namespace
 
+bool PlatformSupported() {
+#ifdef _WIN32
+    // refueled: D12 - no dma-buf on Windows; the PC memory model stays off and direct memory stays
+    // in the runtime's backing object (the existing fallback). One log line.
+    static const bool logged = [] {
+        std::printf("bbport: guest-in-place GPU memory is not supported on Windows\n");
+        return true;
+    }();
+    (void)logged;
+    return false;
+#else
+    return true;
+#endif
+}
+
 bool PcModelGpu(const Vulkan::Instance& instance) {
+    if (!PlatformSupported()) { // refueled
+        return false;
+    }
     static const bool ok = [&] {
         constexpr std::uint32_t AmdVendor = 0x1002;
         const std::uint32_t vendor = instance.GetVendorID();
@@ -139,6 +158,9 @@ bool PcModelGpu(const Vulkan::Instance& instance) {
 }
 
 bool Usable(const Vulkan::Instance& instance) {
+    if (!PlatformSupported()) { // refueled
+        return false;
+    }
     static const bool usable = [&] {
         if (!instance.IsGuestMemoryExportSupported()) {
             std::printf("Guest memory: the driver cannot export system memory as a dma-buf\n");
@@ -171,7 +193,7 @@ bool Usable(const Vulkan::Instance& instance) {
         }
         bool ok = false;
         vk::DeviceMemory memory{};
-        int fd = -1;
+        PfMemHandle fd = PF_MEM_HANDLE_NONE; // refueled: was int fd = -1
         const vk::ExportMemoryAllocateInfo export_info{
             .handleTypes = vk::ExternalMemoryHandleTypeFlagBits::eDmaBufEXT,
         };
@@ -182,38 +204,40 @@ bool Usable(const Vulkan::Instance& instance) {
                 memory = allocated;
                 const auto [fd_result, exported] = dev.getMemoryFdKHR(
                     {.memory = memory, .handleType = vk::ExternalMemoryHandleTypeFlagBits::eDmaBufEXT});
-                fd = fd_result == vk::Result::eSuccess ? exported : -1;
+                fd = fd_result == vk::Result::eSuccess ? (PfMemHandle)exported : PF_MEM_HANDLE_NONE; // refueled
             }
         }
-        if (fd >= 0) {
+        if (fd != PF_MEM_HANDLE_NONE) { // refueled: was fd >= 0
             // The whole buffer and one page inside it, writing through one, reading through the other.
-            void* whole = mmap(nullptr, Size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
-            void* page = mmap(nullptr, 4096, PROT_READ | PROT_WRITE, MAP_SHARED, fd, Offset);
+            // refueled: pf_handle_map (mmap MAP_SHARED, same arguments); failure is nullptr, not MAP_FAILED
+            constexpr int Rw = PF_PROT_READ | PF_PROT_WRITE;
+            void* whole = pf_handle_map(fd, 0, Size, Rw);
+            void* page = pf_handle_map(fd, Offset, 4096, Rw);
             // BB_GUEST_WHOLE_CHUNKS=1: as if the offset mapping failed (tests the NVIDIA path).
             const char* force_whole = std::getenv("BB_GUEST_WHOLE_CHUNKS");
-            if (force_whole && force_whole[0] == '1' && page != MAP_FAILED) {
-                munmap(page, 4096);
-                page = MAP_FAILED;
+            if (force_whole && force_whole[0] == '1' && page != nullptr) { // refueled: was != MAP_FAILED
+                pf_vm_free(page, 4096); // refueled: munmap
+                page = nullptr; // refueled: was MAP_FAILED
             }
-            if (whole != MAP_FAILED && page != MAP_FAILED) {
+            if (whole != nullptr && page != nullptr) { // refueled: was != MAP_FAILED
                 *static_cast<volatile std::uint32_t*>(page) = 0x5ca1ab1e;
                 ok = static_cast<volatile std::uint32_t*>(whole)[Offset / 4] == 0x5ca1ab1e;
-            } else if (whole != MAP_FAILED) {
+            } else if (whole != nullptr) { // refueled: was != MAP_FAILED
                 // Offset 0 only (NVIDIA): a second mapping of the start must alias the first.
-                void* again = mmap(nullptr, 4096, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
-                if (again != MAP_FAILED) {
+                void* again = pf_handle_map(fd, 0, 4096, Rw); // refueled: was mmap
+                if (again != nullptr) { // refueled: was != MAP_FAILED
                     *static_cast<volatile std::uint32_t*>(again) = 0x5ca1ab1e;
                     ok = whole_only = static_cast<volatile std::uint32_t*>(whole)[0] == 0x5ca1ab1e;
-                    munmap(again, 4096);
+                    pf_vm_free(again, 4096); // refueled: munmap
                 }
             }
-            if (whole != MAP_FAILED) {
-                munmap(whole, Size);
+            if (whole != nullptr) { // refueled: was != MAP_FAILED
+                pf_vm_free(whole, Size); // refueled: munmap
             }
-            if (page != MAP_FAILED) {
-                munmap(page, 4096);
+            if (page != nullptr) { // refueled: was != MAP_FAILED
+                pf_vm_free(page, 4096); // refueled: munmap
             }
-            close(fd);
+            pf_handle_close(fd); // refueled: close(fd)
         }
         if (memory) {
             dev.freeMemory(memory);
@@ -221,7 +245,7 @@ bool Usable(const Vulkan::Instance& instance) {
         dev.destroyBuffer(buffer);
         if (!ok) {
             std::printf("Guest memory: the driver's dma-buf cannot be mapped (%s)\n",
-                        fd >= 0 ? "mmap failed" : "no exportable cached system memory");
+                        fd != PF_MEM_HANDLE_NONE ? "mmap failed" : "no exportable cached system memory");
         } else if (whole_only) {
             std::printf("Guest memory: the driver's dma-buf maps at offset 0 only: one chunk per "
                         "direct memory allocation\n");
@@ -236,6 +260,9 @@ void Install(const Vulkan::Instance& instance) {
     const char* env = std::getenv("BB_GUEST_GPU_MEMORY");
     const char* in_place = std::getenv("BB_GUEST_IN_PLACE");
     if (!(env && env[0] == '1') && !(in_place && in_place[0] == '1' && PcModelGpu(instance))) {
+        return;
+    }
+    if (!PlatformSupported()) { // refueled: logs once, direct memory stays in the backing object
         return;
     }
     if (!Usable(instance)) {
