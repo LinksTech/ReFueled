@@ -13,8 +13,8 @@
 PF_EXTERN_C_BEGIN
 
 /* Deletes `path` and everything below it, children first, without following symbolic links
- * (nftw(FTW_DEPTH|FTW_PHYS) + remove). Missing path: 0. Returns 0 or PF_E* (the first error;
- * the walk continues). */
+ * (nftw(FTW_DEPTH|FTW_PHYS) + remove). Missing path: 0. Returns 0 or PF_E*: the walk stops at
+ * the first error, as the nftw callback in runtime_savedata.c always did. */
 int pf_fs_remove_tree(const char *path);
 
 /* Replaces `to` with `from` atomically where the platform allows (rename / MoveFileExW with

@@ -1,6 +1,6 @@
 # ReFueled – Schnittstellen (Vertrag)
 
-Stand 2026-10-13, Version **IF-2** (eingefroren, Paket F1). Die Header unter `src/platform/` sind die
+Stand 2026-10-13, Version **IF-3** (eingefroren seit IF-2, Paket F1). Die Header unter `src/platform/` sind die
 verbindliche Fassung. Dieses Dokument erklärt sie, ordnet jede Funktion den heutigen
 Linux-Fundstellen zu und protokolliert Änderungen (§6). **Ändern darf sie nur Opus.**
 
@@ -165,3 +165,4 @@ sigaction-Flags je Signal wie bisher (SIGTRAP mit `SA_NODEFER`). Der Dispatcher 
 |---|---|---|---|
 | IF-1 | 2026-10-12 | Erstfassung: pf_base, pf_memory, pf_tls, pf_jmp, pf_exception, pf_thread, pf_fs, pf_process, pf_log | Phase 1 |
 | IF-2 | 2026-10-13 | Eingefroren nach Review (F1), inhaltlich gleich IF-1. Prüfung: jeder Header zweimal eingebunden, `-std=c11 -Wall -Wextra -Werror -pedantic` und `-std=c++23 -Wall -Wextra -Werror`, Linux- und `_WIN32`-Zweig, gcc 13.3 (WSL) grün. Wiederholung mit clang (CLANG64) in F3. Der Low-Heap-Allokator ist ab jetzt ein eigenes Paket (LH), die Funktionen in `pf_memory.h` bleiben gleich. | Freigabe Phase 2 |
+| IF-3 | 2026-10-13 | `pf_fs_remove_tree`: bricht beim ersten Fehler ab (Kommentar sagte "walk continues"). | Linux-Verhalten von runtime_savedata.c (Callback gibt remove() zurück) muss gleich bleiben; im R2-Review gefunden |
