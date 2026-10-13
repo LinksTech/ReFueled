@@ -12,6 +12,28 @@
 
 PF_EXTERN_C_BEGIN
 
+/* What the runtime reads from struct stat for the guest's stat (runtime_file.c convert_stat),
+ * in fixed-width types. Linux: copied field by field from stat()/fstat(); Windows: from
+ * GetFileInformationByHandle (times with 100 ns resolution, the file index as ino, the volume
+ * serial as dev; mode S_IFDIR|0755 or S_IFREG|0644, 0444 when read-only; blksize 4096, blocks in
+ * 512-byte units of the size). */
+typedef struct {
+    uint64_t dev, ino, nlink, size, blocks;
+    uint32_t mode, blksize;
+    int64_t atime_sec, atime_nsec, mtime_sec, mtime_nsec, ctime_sec, ctime_nsec;
+} PfStat;
+
+/* stat(path) / fstat(fd) into a PfStat; 0, PF_ENOENT, PF_EACCES or PF_EIO. */
+int pf_fs_stat(const char *path, PfStat *out);
+int pf_fs_fstat(int fd, PfStat *out);
+
+/* The d_type of a readdir entry where the platform has one (Linux: entry->d_type); Windows has
+ * none and src/platform/pf_posix_gap_win32.h defines this as DT_UNKNOWN, so callers fall back
+ * to pf_fs_stat of the entry, as the common code already does for DT_UNKNOWN. */
+#ifndef PF_DIRENT_TYPE
+#define PF_DIRENT_TYPE(entry) ((entry)->d_type)
+#endif
+
 /* Deletes `path` and everything below it, children first, without following symbolic links
  * (nftw(FTW_DEPTH|FTW_PHYS) + remove). Missing path: 0. Returns 0 or PF_E*: the walk stops at
  * the first error, as the nftw callback in runtime_savedata.c always did. */
