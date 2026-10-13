@@ -1,5 +1,6 @@
 #define _GNU_SOURCE
 #include "runtime.h"
+#include "platform/pf_base.h"
 #include <stdlib.h>
 
 /* The settings menu of the GPU library restarts through probe.c, which tests do not link. */
@@ -326,6 +327,8 @@ static void rw_timeouts(void) {
     fixture_destroy(&f);
 }
 int main(int argc,char **argv) {
+    /* refueled: Windows needs the process init and the guest layout before any runtime use (no-ops on Linux). */
+    assert(pf_init()==0); assert(runtime_memory_init_layout()==0);
     runtime_start(0); assert(runtime_resolve("bzQExy189ZI#libc",0)==0);
     runtime_start(1);
     assert(runtime_resolve("bzQExy189ZI#wrong#module",0)==0);
