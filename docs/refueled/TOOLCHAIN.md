@@ -13,7 +13,6 @@ stammen von packages.msys2.org (Stand 2026-10-12).
 | Python | 3.13.15 (+ uv 3.14.7) | `python3` ist nur der Store-Stub; `python` funktioniert |
 | Visual Studio Build Tools 2022 | 17.14.37, MSVC 14.44, Windows SDK 10.0.26100 | **ohne** Clang-Komponente |
 | Vulkan SDK | 1.3.296.0 (aktiv) und 1.4.350.0 | glslangValidator, glslc, spirv-opt, dxc vorhanden |
-| WSL2 | Ubuntu 24.04, gcc 13.3, Python 3.12 | **ohne** cmake, pkg-config, Vulkan-Header, SDL3 |
 | Hardware | Ryzen 9 9900X (24 Threads), 31 GB RAM, 1,3 TB frei; RTX 5080 (Vulkan 1.4) + AMD iGPU | `LongPathsEnabled = 0` |
 
 ## 2. Fehlt für Option A (empfohlen, ARCHITECTURE.md D1)
@@ -42,22 +41,14 @@ pacman -S --needed mingw-w64-clang-x86_64-toolchain mingw-w64-clang-x86_64-cmake
 **Nicht in MSYS2**, kommen aus den Quellen über `tools/deps.sh` (wie heute auf Linux):
 magic_enum (deps.sh holt v0.9.7), xbyak (deps.sh holt v7.30), **miniz** (neu, über ein eigenes
 `tools/deps-windows.sh`, damit `deps.sh` für Linux unverändert bleibt; Paket F5).
-Achtung: Die MSYS2-Versionen liegen über denen, mit denen bbport auf Linux baut (nixpkgs), z. B.
+Achtung: Die MSYS2-Versionen liegen über denen, mit denen bbport auf Linux baut (shell.nix), z. B.
 fmt 12 und boost 1.92. Brechen sie den GPU-Build, legt F5 Versionen fest (FetchContent).
 
-## 3. Fehlt für die Linux-Regression in WSL (D15)
+## 3. Linux-Regression
 
-Vorschlag: **Nix single-user** in der vorhandenen Ubuntu-WSL. `build.sh` startet dann selbst
-`nix-shell shell.nix`, das entspricht genau der Upstream-Umgebung.
-Anleitung: https://nixos.org/manual/nix/stable/installation/single-user, Befehl laut
-https://nixos.org/download/: `curl --proto '=https' --tlsv1.2 -L https://nixos.org/nix/install | sh -s -- --no-daemon`
-(fragt per sudo nach `/nix`). Der erste `nix-shell`-Lauf lädt einige GB in `/nix` in der WSL,
-nicht auf C:.
-Alternative ohne Nix: `apt install cmake ninja-build pkg-config libvulkan-dev glslang-tools libboost-dev libfmt-dev libxxhash-dev libzydis-dev libavformat-dev libswscale-dev libswresample-dev libx11-dev …`.
-SDL3 gibt es für Ubuntu 24.04 nicht im Archiv (erst ab 26.04), also aus den Quellen bauen.
-
-Hinweis Pfadregel: Die WSL-Pakete landen im WSL-Dateisystem (ext4-Image unter
-`%LOCALAPPDATA%\Packages\…`), also außerhalb von `C:\nitro-ps4-*`. Das ist bei jeder WSL-Nutzung so.
+Nicht auf diesem Rechner (ARCHITECTURE.md D19): kein WSL, kein Nix, keine VM. Die Linux-Prüfung
+läuft nur in GitHub Actions (`.github/workflows/linux-build.yml`, Ubuntu-Runner, Umgebung aus
+`shell.nix`), sobald das GitHub-Repo existiert.
 
 ## 4. Nur für Option B (falls doch gewünscht)
 

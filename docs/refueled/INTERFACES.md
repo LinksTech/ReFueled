@@ -157,7 +157,7 @@ sigaction-Flags je Signal wie bisher (SIGTRAP mit `SA_NODEFER`). Der Dispatcher 
 - Linux-Implementierungen sind **verschobener** Code: gleiche Systemaufrufe, gleiche Flags, gleiche
   Reihenfolge, gleiche Meldungstexte. Der Review vergleicht Zeile für Zeile mit dem alten Ort.
 - Jede Implementierung bringt Unittests in `tests/refueled/test_<bereich>.c` mit. Sie laufen auf
-  beiden Plattformen (Linux in WSL, Windows im MSYS2-Build).
+  beiden Plattformen (Windows im MSYS2-Build; Linux nur in CI, D19).
 
 ## 6. Änderungsprotokoll
 

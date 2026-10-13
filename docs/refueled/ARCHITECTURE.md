@@ -1,6 +1,6 @@
 # ReFueled – Architektur des Windows-Ports
 
-Stand 2026-10-13 (Phase 2 freigegeben, Freigaben in §4 D1, D10, D15, D17 eingetragen). Basis: Branch `refueled/windows` ab f1f7935
+Stand 2026-10-13 (Phase 2 freigegeben, Freigaben in §4 D1, D10, D17; Planänderung D19: kein WSL/Linux lokal). Basis: Branch `refueled/windows` ab f1f7935
 (= Tag v0.2.1 + 7 Zeilen STATUS.md). Lizenz GPL-2.0-or-later wie SacredFire.
 
 Zugehörig: [U1-SPEICHER.md](U1-SPEICHER.md), [U2-SIGNALE-THREADS.md](U2-SIGNALE-THREADS.md),
@@ -57,7 +57,8 @@ src/platform/
 build-windows.sh          Windows-Build (MSYS2 CLANG64-Bash), analog build.sh
 tests/refueled/           Plattform-Unittests (laufen auf beiden Plattformen)
 docs/refueled/            Planung, Berichte, Audits, Metrik
-docs/refueled/tools/      linux_hits.py (Metrik), linux-regress.sh (WSL)
+docs/refueled/tools/      linux_hits.py (Metrik), linux-platform-tests.sh (CI)
+.github/workflows/        linux-build.yml (Linux-Regression in CI, D19)
 ```
 
 ## 4. Entscheidungen
@@ -163,11 +164,23 @@ Möglichst über Helfer im Shim (`gpu/shim`), nicht im vendored Code. Jede Zeile
 `refueled:`-Kommentar. Vom eingebetteten Upstream-Code übernommene Windows-Teile werden mit
 Herkunft gekennzeichnet (shadPS4-Commit).
 
-### D15 Linux-Regression in WSL2
+### D15 Linux-Regression in WSL2 – **ersetzt durch D19 (2026-10-13)**
 Ubuntu 24.04 ist vorhanden, aber ohne cmake, pkg-config, Vulkan-Header und SDL3. Vorschlag:
 Nix (single-user) in WSL. `build.sh` springt dann selbst in `nix-shell shell.nix`, das ist die
 Upstream-Umgebung. Alternative: apt-Pakete + SDL3 aus Quellen.
 **Freigegeben 2026-10-13: Nix aus `shell.nix`.** Installation macht die Projektleitung (TOOLCHAIN.md §3).
+
+### D19 Kein Linux auf dem Entwicklungsrechner; Linux-Prüfung nur in CI (Planänderung 2026-10-13)
+Auf diesem Rechner wird kein Linux benutzt (keine WSL-Distribution, kein Nix, keine VM). Einzige
+Build-Umgebung ist Windows mit MSYS2 CLANG64, dazu MSVC aus den VS Build Tools für
+Zwischenläufe reiner Win32-Dateien. Ziel ist ausschließlich der native Windows-Port (.exe).
+Linux-Code bleibt erhalten (`pf_*_linux.c`, `build.sh`), wird lokal aber nicht gebaut oder
+getestet. Die Regel "Linux-Verhalten nicht ändern, nur verschieben/abstrahieren" gilt weiter und
+wird so abgesichert: (a) jedes Paket liefert eine alt↔neu-Tabelle für jede Linux-wirksame Stelle,
+Opus prüft die Gleichheit beim Merge und vermerkt das im Paket-Log; (b)
+`.github/workflows/linux-build.yml` (Ubuntu-Runner, `build.sh --test`, Python-Tests,
+Plattformtests) ist vorbereitet und wird aktiv, sobald das GitHub-Repo existiert; (c)
+Linux-Prüfpakete haben in TASKS.md den Status `deferred-ci` und blockieren nichts.
 
 ### D16 Issue #2 (überschriebenes Dword) nicht jagen
 `BB_ASYNC_PIPELINES` bleibt aus. Tritt `SacredFire issue #2:` im Windows-Log auf, wird es mit
