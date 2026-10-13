@@ -7,9 +7,11 @@
 #include "pf_base.h"
 #include "pf_tls.h"
 #include "pf_win32_internal.h"
+#include "pf_posix_gap_win32.h"
 
 int pf_init(void) {
     _fmode = _O_BINARY;
+    pf_gap_init_crt(); /* refueled F6: invalid CRT arguments (close(-1), ...) return EBADF instead of ending the process */
     int result = pf_win32_exception_init();
     if (!result) result = pf_tls_init();
     /* 1 ms timer resolution for sleeps and waits (winmm, loaded here so no import library is needed). */
