@@ -266,3 +266,6 @@ int pf_thread_sample(uint64_t tid, void (*sample)(const PfContext *context, void
     pthread_mutex_unlock(&sample_lock);
     return result;
 }
+
+/* runtime_kernel.c get_current_cpu: sched_getcpu. */
+int pf_current_cpu(void) { return sched_getcpu(); }

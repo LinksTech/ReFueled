@@ -1,6 +1,6 @@
 # ReFueled – Schnittstellen (Vertrag)
 
-Stand 2026-10-13, Version **IF-7** (eingefroren seit IF-2, Paket F1). Die Header unter `src/platform/` sind die
+Stand 2026-10-13, Version **IF-8** (eingefroren seit IF-2, Paket F1). Die Header unter `src/platform/` sind die
 verbindliche Fassung. Dieses Dokument erklärt sie, ordnet jede Funktion den heutigen
 Linux-Fundstellen zu und protokolliert Änderungen (§6). **Ändern darf sie nur Opus.**
 
@@ -170,3 +170,4 @@ sigaction-Flags je Signal wie bisher (SIGTRAP mit `SA_NODEFER`). Der Dispatcher 
 | IF-5 | 2026-10-13 | §4 umgesetzt: `runtime.h` bindet pf_jmp.h/pf_memory.h ein, `runtime_fault_recover` ist `pf_sigjmp_buf *` und nicht mehr Linux-only, `runtime_restart` ebenso; `runtime_low_map` nimmt PF_PROT_*; `runtime_memory_set_guest_chunk_allocator` mit Rückgabe `PfMemHandle` jetzt in runtime.h deklariert; `bbgpu.h`: `bbgpu_handle_fault(PfContext *, void *)`, `bbgpu_dump_guest_writes(PfContext *)` (PfContext vorwärts deklariert). Linux: gleiche Typen/Werte (sigjmp_buf, PROT_*-Werte 1/2/4, fd als intptr_t), Aufrufer passen K2/K3/K5/S2/V2/V3 an | Aufrufer-Umstellungen ohne Linux-Build (Planänderung 2026-10-13) |
 | IF-6 | 2026-10-13 | `runtime_memory_init_layout()` (runtime.h): Layout-Reservierung + Low-Heap (oberste 512 MiB des low-Bereichs, [0xF_E000_0000, 0x10_0000_0000)); Implementierung K2, Aufruf in main direkt nach pf_init (K3) | Startreihenfolge pf_init → Layout → Image bei 0x800000000 (U1 §4) an einer Stelle |
 | IF-7 | 2026-10-13 | `pf_context_fault_access` (pf_exception.h; Linux REG_ERR&2 wie shadPS4 IsWriteError, Windows aus dem Exception-Record, PfContext trägt dort `access`); neuer Header `pf_time.h`: `pf_sleep_until_ns` (Linux clock_nanosleep TIMER_ABSTIME aus runtime_audio.c), `pf_utc_offset_seconds(utc, *is_dst)` (Linux localtime_r tm_gmtoff/tm_isdst); `pf_fs_stamp(path, *mtime_ns, *size)` (Linux stat st_mtim). Test test_time.c (MSVC-Lauf 28 grün) | Bedarf aus V1 (IsWriteError), R4 (sleep_until, st_mtim), R1/R5a (tm_gmtoff) |
+| IF-8 | 2026-10-13 | `pf_random_bytes` (getrandom-Schleife / BCryptGenRandom), `pf_cpu_times(thread, *user_ns, *system_ns)` (getrusage SELF/THREAD / GetProcess-/GetThreadTimes) in pf_process.h; `pf_current_cpu` (sched_getcpu / GetCurrentProcessorNumber) in pf_thread.h. MSVC-Lauf test_time 32 grün | Bedarf aus R1 (kern.arandom, sceKernelGetRandomNumber, getrusage, get_current_cpu) |

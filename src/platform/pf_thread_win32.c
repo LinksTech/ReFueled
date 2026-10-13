@@ -126,6 +126,8 @@ int pf_cpu_count_allowed(void) {
     return count;
 }
 
+int pf_current_cpu(void) { return (int)GetCurrentProcessorNumber(); }
+
 int pf_thread_cpu_time_ns(uint64_t *nanoseconds) {
     FILETIME created, exited, kernel, user;
     if (!nanoseconds) return PF_EINVAL;

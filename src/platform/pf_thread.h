@@ -54,6 +54,10 @@ int pf_thread_set_idle_priority(void);
 /* Number of CPUs this process may run on (sched_getaffinity / GetProcessAffinityMask). */
 int pf_cpu_count_allowed(void);
 
+/* Number of the CPU the calling thread runs on right now (sched_getcpu, -1 on failure /
+ * GetCurrentProcessorNumber). */
+int pf_current_cpu(void);
+
 /* CPU time consumed by the calling thread, in nanoseconds (pthread_getcpuclockid +
  * clock_gettime / GetThreadTimes). */
 int pf_thread_cpu_time_ns(uint64_t *nanoseconds);

@@ -135,3 +135,36 @@ int pf_restart_through_launcher(void) {
     CloseHandle(process.hProcess);
     ExitProcess(0);
 }
+
+/* bcrypt.dll, loaded at run time so no import library is needed. */
+typedef LONG(WINAPI *BCryptGenRandomFn)(void *, unsigned char *, ULONG, ULONG);
+#define PF_BCRYPT_USE_SYSTEM_PREFERRED_RNG 0x00000002
+
+int pf_random_bytes(void *buffer, size_t size) {
+    static BCryptGenRandomFn generate;
+    if (!generate) {
+        HMODULE bcrypt = LoadLibraryW(L"bcrypt.dll");
+        if (bcrypt) generate = (BCryptGenRandomFn)(void (*)(void))GetProcAddress(bcrypt, "BCryptGenRandom");
+        if (!generate) return PF_EIO;
+    }
+    unsigned char *out = buffer;
+    while (size) {
+        const ULONG chunk = size > 0x40000000u ? 0x40000000u : (ULONG)size;
+        if (generate(NULL, out, chunk, PF_BCRYPT_USE_SYSTEM_PREFERRED_RNG) < 0) return PF_EIO;
+        out += chunk;
+        size -= chunk;
+    }
+    return 0;
+}
+
+static uint64_t filetime_ns(FILETIME t) { return ((((uint64_t)t.dwHighDateTime) << 32) | t.dwLowDateTime) * 100u; }
+
+int pf_cpu_times(int thread, uint64_t *user_ns, uint64_t *system_ns) {
+    FILETIME created, exited, kernel, user;
+    const BOOL ok = thread ? GetThreadTimes(GetCurrentThread(), &created, &exited, &kernel, &user)
+                           : GetProcessTimes(GetCurrentProcess(), &created, &exited, &kernel, &user);
+    if (!ok) return PF_EIO;
+    if (user_ns) *user_ns = filetime_ns(user);
+    if (system_ns) *system_ns = filetime_ns(kernel);
+    return 0;
+}
