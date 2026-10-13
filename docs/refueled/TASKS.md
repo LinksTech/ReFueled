@@ -74,7 +74,7 @@ ungleich "keine" = Entscheidung Opus, Meldung an die Projektleitung im nächsten
 | R3 | pf_process + pf_log beide Plattformen (Symbole, Backtrace, Mapping-Zeile, Speicher, Neustart, stderr) | `src/platform/pf_process_linux.c`, `pf_process_win32.c`, `pf_log_win32.c`, `tests/refueled/test_process.c` | F1, F3, F4 | Test: Symbol einer bekannten Funktion, Backtrace ≥ 3 Frames, Mapping-Zeile des Stacks | M | S | in_progress: Plattformteil done (Linux 21, MSVC 19 grün); Aufrufer in K3/V2 |
 | R4 | Audio, Pad, AJM unter Windows (SDL3), Controller-Neuscan | `src/runtime_audio.c`, `src/runtime_pad.c`, `src/runtime_ajm.c` | F3, F6 | Windows kompiliert; `test_pad` grün | S | S | done als Code (Linux-Review); Kompilat CLANG64 offen |
 | R5 | Restliche Runtime-Dateien kompilieren unter Windows (POSIX-Teilmenge, LLP64-Fixes aus F10, Low-Heap-Fixes aus F9) | `src/runtime.c`, `runtime_services.c`, `runtime_rtc.c`, `runtime_time.c`, `runtime_mutex.c`, `runtime_rwlock.c`, `runtime_sema.c`, `runtime_eventflag.c`, `runtime_content.c`, `runtime_json2.c`, `src/vulkan_smoke.c` | F3, F6, F9, F10 | Windows kompiliert; Linux-Tests grün | M | S | in_progress: R5a done; Kompilat aller übrigen Dateien unter CLANG64 |
-| T1 | Bestehende Tests unter Windows (`build-windows.sh --test`: test_runtime, test_sema, test_eventflag, test_pad, test_content, test_file_mods) | `tests/*.c` (nur nötige Minimaländerungen) | F3, R5 | alle grün auf Windows | M | S | blocked |
+| T1 | Bestehende Tests unter Windows (`build-windows.sh --test`: test_runtime, test_sema, test_eventflag, test_pad, test_content, test_file_mods) | `tests/*.c` (nur nötige Minimaländerungen) | F3, R5 | alle grün auf Windows | M | S | done (ddaa932: 6/6 der build.sh-Tests unter Windows grün; T1a/T1b/T1c) |
 | T2 | Skripte unter Windows: prepare/link/patches/game_check in MSYS2-Python, `run-windows.sh` | `run-windows.sh`, `scripts/*.py` (nur Portabilitätsfixes) | F3 | `prepare.py` + `link_modules.py` erzeugen auf Windows dieselben Ausgabedateien wie auf Linux (sha256 gleich) | M | S | in_progress: T2a + T2b done; run-windows.sh folgt mit CLANG64 |
 
 ### Nachträge Welle A (2026-10-13)
@@ -88,7 +88,7 @@ ungleich "keine" = Entscheidung Opus, Meldung an die Projektleitung im nächsten
 | TLS | Statische TLS-Analyse: alle fs:/gs:-Zugriffe in eboot + Modulen gegen link_*.py-Umschreibung und pf_tls_patch_image (nur Zählungen/Offsets) | tools/tls_scan.py, audit/TLS-SCAN.md | – (mit 1.21 wiederholen) | S | done (c0501de; 1.00: 3748 Zugriffe, alle abgedeckt; mit 1.21 wiederholen) |
 | DBG | M2-Debug: BB_CRASH_DETAIL (Register, Gast-Stack, rbp-Kette, Image-Offsets), BB_TRACE_IMPORTS (Thunks), Anleitung DEBUG-M2.md; Linux ohne Schalter unverändert | src/probe.c (Fault-Bericht, Bindungsschleife), run-windows.sh, DEBUG-M2.md | – | S (O-Review) | done (d3518b2; Syntax unter CLANG64 geprüft) |
 | HYP | Hypothesen-Protokoll M2: bis 3 Hypothesen parallel in eigenen Worktrees | M2-HYPOTHESEN.md | – | O | done (Regel) |
-| M3S | M3-Strang parallel zu M1/M2: G2/G3-Rest, Fenster, Vulkan-Init mit Testbild | gpu/** (je Teilpaket) | erster vollständiger Build | S je Teilpaket, O Merge | blocked (CLANG64) |
+| M3S | M3-Strang parallel zu M1/M2: G2/G3-Rest, Fenster, Vulkan-Init mit Testbild | gpu/** (je Teilpaket) | erster vollständiger Build | S je Teilpaket, O Merge | in_progress (M3S1 done fdb7e71: Fenster, Swapchain, ~60 Hz, Validierung fehlerfrei) |
 | ML0 | Mod-Loader-Architekturentwurf (Overlay, Hooks, Lade-API) | MODLOADER.md | – | O | done (Entwurf) |
 
 ### Später / bei Bedarf
