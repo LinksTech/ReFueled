@@ -6,6 +6,7 @@
  * Metadata lives beside the directory so the guest's own files are untouched. */
 #define _GNU_SOURCE
 #include "runtime.h"
+#include "platform/pf_fs.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -14,7 +15,6 @@
 #ifndef _WIN32
 #include <dirent.h>
 #include <errno.h>
-#include <ftw.h>
 #include <sys/stat.h>
 #include <unistd.h>
 
@@ -112,9 +112,6 @@ static int read_param(const char *meta, Param *p) {
     struct stat st;
     if (!stat(path,&st)) p->mtime=st.st_mtime;
     return n==1 ? 0 : -1;
-}
-static int remove_entry(const char *path, const struct stat *st, int flag, struct FTW *ftw) {
-    (void)st; (void)flag; (void)ftw; return remove(path);
 }
 
 static ABI int32_t save_initialize(const void *param) { (void)param; initialized=1; return 0; }
@@ -223,8 +220,8 @@ static ABI int32_t save_delete(const Delete *d) {
     snprintf(meta,sizeof(meta),"%s/%s.sce_sys",base,d->dir->data);
     struct stat st;
     if (stat(host,&st)) return ERR_NOT_FOUND;
-    nftw(host,remove_entry,16,FTW_DEPTH|FTW_PHYS);
-    nftw(meta,remove_entry,16,FTW_DEPTH|FTW_PHYS);
+    pf_fs_remove_tree(host); /* result ignored, as the nftw calls were */
+    pf_fs_remove_tree(meta);
     printf("Runtime: save data '%s' deleted\n",d->dir->data);
     return 0;
 }
