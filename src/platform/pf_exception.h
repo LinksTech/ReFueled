@@ -77,8 +77,25 @@ PF_NORETURN void pf_exit_now(int status);
 
 /* After `seconds` (0: off), calls on_timeout(context, user) once. Linux: alarm() + SIGALRM, the
  * context is the interrupted thread's; Windows: a timer thread, context NULL. The callback
- * usually dumps all threads (pf_thread_sample) and calls pf_exit_now. Replaces an earlier timer. */
+ * usually dumps all threads (pf_dump_other_threads) and calls pf_exit_now. Replaces an earlier
+ * timer. */
 int pf_watchdog_start(unsigned seconds, void (*on_timeout)(PfContext *context, void *user), void *user);
+
+/* ---- Thread dump on request (IF-10, ARCHITECTURE.md D20) -------------------------------- */
+
+/* Registers dump(context, tid, user), called with the registers of one thread. Linux: installs the
+ * pre-port SIGUSR2 handler (SA_SIGINFO|SA_RESTART, empty mask), so a SIGUSR2 to the process or one
+ * thread (`kill -USR2`, profiling without perf) prints that thread's stack, called on that thread
+ * with tid = its own id. Windows: only stores the callback (no signals). `dump` runs in signal
+ * context on Linux: no allocation, no locks. */
+int pf_dump_signal_install(void (*dump)(const PfContext *context, uint64_t tid, void *user), void *user);
+
+/* Dumps every thread except the caller through the installed callback; for the watchdog.
+ * Linux, as before the port: tgkill SIGUSR2 to each thread of /proc/self/task with 20 ms between
+ * them and 100 ms at the end (asynchronous; async-signal-safe, callable from the SIGALRM handler).
+ * Windows: each thread in turn through pf_thread_sample (synchronous). PF_EINVAL without
+ * pf_dump_signal_install (Linux would otherwise end the process with SIGUSR2's default action). */
+int pf_dump_other_threads(void);
 
 PF_EXTERN_C_END
 #endif

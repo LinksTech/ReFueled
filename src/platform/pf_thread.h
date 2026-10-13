@@ -68,11 +68,13 @@ int pf_thread_cpu_time_ns(uint64_t *nanoseconds);
  * Toolhelp32 + GetThreadDescription). Returns the number visited or PF_E*. */
 int pf_threads_list(void (*visit)(uint64_t tid, const char *name, void *user), void *user);
 
-/* Interrupts thread `tid` and calls sample(context, user) with its registers while it is stopped.
- * Linux: tgkill with a real-time-safe handler on the target thread (as the SIGPROF sampler and
- * the SIGUSR2 thread dump do today); Windows: SuspendThread + GetThreadContext from the calling
- * thread, then ResumeThread. `sample` must not allocate or take locks (the target may hold them);
- * read the target's stack with pf_read_memory_safe. Waits until `sample` has returned. */
+/* Interrupts thread `tid` and calls sample(context, user) with its registers while it is stopped
+ * (IF-10). Linux: tgkill SIGPROF, the handler runs `sample` on the target thread; ASYNCHRONOUS as
+ * the pre-port BB_SAMPLE_THREAD sampler: returns once the signal is sent, `sample` runs shortly
+ * after, with the (sample, user) of the latest call, so `user` must outlive the call (static).
+ * Windows: SuspendThread + GetThreadContext from the calling thread, then ResumeThread;
+ * synchronous. `sample` must not allocate or take locks (the target may hold them); read the
+ * target's stack with pf_read_memory_safe. 0, PF_ENOENT (no such thread) or PF_E*. */
 int pf_thread_sample(uint64_t tid, void (*sample)(const PfContext *context, void *user), void *user);
 
 PF_EXTERN_C_END

@@ -17,6 +17,7 @@
 #include <sys/mman.h>
 #include <unistd.h>
 #endif
+#include "platform/pf_exception.h"
 #include "platform/pf_thread.h"
 #include "platform/pf_tls.h"
 
@@ -158,8 +159,14 @@ static void *spinner_thread(void *argument) {
 
 typedef struct {
     uint64_t rip, rsp, tid;
-    int calls;
+    volatile int calls;
 } Sampled;
+
+/* pf_thread_sample is asynchronous on Linux (SIGPROF, IF-10) and synchronous on Windows. */
+static int wait_calls(const Sampled *sampled, int calls) {
+    for (int i = 0; i < 2000 && sampled->calls < calls; ++i) sleep_ms(1);
+    return sampled->calls == calls;
+}
 
 static void sample_callback(const PfContext *context, void *user) {
     Sampled *sampled = user;
@@ -167,6 +174,17 @@ static void sample_callback(const PfContext *context, void *user) {
     sampled->rsp = pf_context_get(context, PF_REG_RSP);
     sampled->tid = pf_thread_id();
     sampled->calls++;
+}
+
+typedef struct {
+    uint64_t wanted;
+    volatile int calls, seen;
+} Dumped;
+
+static void dump_callback(const PfContext *context, uint64_t tid, void *user) {
+    Dumped *dumped = user;
+    dumped->calls++;
+    if (tid == dumped->wanted && pf_context_get(context, PF_REG_RIP) != 0) dumped->seen = 1;
 }
 
 static void *tls_other_thread(void *argument) {
@@ -293,7 +311,7 @@ int main(void) {
         pthread_create(&thread, NULL, spinner_thread, &spinner);
         while (!atomic_load(&spinner.ready)) sleep_ms(1);
         CHECK(pf_thread_sample(spinner.tid, sample_callback, &sampled) == 0);
-        CHECK(sampled.calls == 1);
+        CHECK(wait_calls(&sampled, 1));
         CHECK(sampled.rip != 0);
         CHECK(sampled.rsp >= spinner.stack_low && sampled.rsp < spinner.stack_high);
 #ifndef _WIN32
@@ -301,8 +319,17 @@ int main(void) {
 #else
         CHECK(sampled.tid == pf_thread_id()); /* Windows: on the sampling thread */
 #endif
-        CHECK(pf_thread_sample(spinner.tid, sample_callback, &sampled) == 0 && sampled.calls == 2);
+        CHECK(pf_thread_sample(spinner.tid, sample_callback, &sampled) == 0 && wait_calls(&sampled, 2));
         CHECK(pf_thread_sample(0x7ffffff0u, sample_callback, &sampled) == PF_ENOENT);
+        /* Thread dump on request (IF-10): every other thread once, the spinner among them. */
+        {
+            static Dumped dumped;
+            dumped.wanted = spinner.tid;
+            CHECK(pf_dump_other_threads() == PF_EINVAL); /* nothing installed yet */
+            CHECK(pf_dump_signal_install(dump_callback, &dumped) == 0);
+            CHECK(pf_dump_other_threads() == 0);
+            CHECK(dumped.seen == 1 && dumped.calls >= 1);
+        }
         atomic_store(&spinner.stop, 1);
         pthread_join(thread, NULL);
     }

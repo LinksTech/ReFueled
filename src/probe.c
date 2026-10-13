@@ -185,21 +185,16 @@ static void dump_frames(const PfContext *context, uint64_t tid) {
         rbp=frame[0]; rip=frame[1];
     }
 }
-/* pf_thread_sample: the stopped thread's registers (Linux: on that thread, as the SIGUSR2 handler
- * that this replaces; Windows: suspended, read from the watchdog thread). */
-static void dump_sampled(const PfContext *context, void *user) { dump_frames(context, *(const uint64_t *)user); }
-static void dump_other(uint64_t tid, const char *name, void *self) {
-    (void)name;
-    if (tid && tid != *(const uint64_t *)self) pf_thread_sample(tid, dump_sampled, &tid);
-}
+/* The thread dump (pf_dump_signal_install): Linux the SIGUSR2 handler on that thread, as before;
+ * Windows: the watchdog thread with the suspended thread's registers. */
+static void thread_dump(const PfContext *context, uint64_t tid, void *user) { (void)user; dump_frames(context, tid); }
 static void watchdog(PfContext *context, void *user) {
     (void)user;
     const char head[]="STOP: watchdog timeout; thread stacks:\n";
     pf_write_stderr(head,sizeof(head)-1);
-    uint64_t self=pf_thread_id();
     /* Linux: the context of the thread the alarm interrupted; Windows: none (timer thread). */
-    if (context) dump_frames(context,self);
-    pf_threads_list(dump_other,&self);
+    if (context) dump_frames(context,pf_thread_id());
+    pf_dump_other_threads(); /* Linux: SIGUSR2 to every other thread, 20 ms apart, then 100 ms */
     pf_exit_now(128 + 14); /* 128 + SIGALRM, the exit code of the Linux watchdog */
 }
 /* param.sfo lookup: string or integer value of key, 0 when absent. */
@@ -346,7 +341,8 @@ int main(int argc, char **argv) {
     if (pf_fault_add_handler((1u << PF_FAULT_ACCESS) | (1u << PF_FAULT_BUS) | (1u << PF_FAULT_ILLEGAL), fault, NULL))
         fail("cannot install the fault handler");
     exe_base = pf_executable_base();
-    /* The thread dump of the watchdog samples every thread itself (pf_thread_sample). */
+    /* Thread dump on request (Linux: SIGUSR2, also `kill -USR2` for profiling), then the watchdog. */
+    if (pf_dump_signal_install(thread_dump, NULL)) fail("cannot install the thread dump");
     if (pf_watchdog_start(timeout_seconds, watchdog, NULL)) fail("cannot start the watchdog"); /* 0 disables it */
     FILE *f = fopen(argv[1], "rb");
     if (!f) fail("cannot open boot file; run prepare.py first");

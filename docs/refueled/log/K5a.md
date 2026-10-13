@@ -63,3 +63,6 @@ Die Aufrufer (runtime_thread.c, runtime_kernel.c, probe.c, Shims) sind nicht umg
 - Nicht getestet: PF_ETIMEDOUT-Pfad (Ziel blockiert das Signal).
 - pf_thread_set_idle_priority im Test zuletzt (senkt den Hauptthread).
 - Windows-Teil von test_thread.c: K6.
+
+## Nachtrag 2026-10-13 (IF-10)
+Der SIGRTMIN+2-Mechanismus von `pf_thread_sample` ist entfernt. Linux nutzt wieder SIGPROF ohne Warten (alter Sampler), der Thread-Dump wieder SIGUSR2 (`pf_dump_signal_install` / `pf_dump_other_threads`). Siehe log/IF-10.md.

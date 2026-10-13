@@ -6,6 +6,7 @@
  *   SIGTRAP                SA_SIGINFO|SA_NODEFER, empty mask (gpu/shim/bbport_guest_hooks.cpp,
  *                                                            bbport_free_check.cpp)
  *   SIGALRM                SA_SIGINFO, empty mask         (src/probe.c, watchdog)
+ *   SIGUSR2                SA_SIGINFO|SA_RESTART, empty mask (src/probe.c, thread_dump; D20)
  * The action that was installed before ours is remembered per signal and is called for faults no
  * registered handler claims, exactly as the shims chained to theirs; without one the signal's
  * default action runs. */
@@ -18,7 +19,10 @@
 #include <pthread.h>
 #include <signal.h>
 #include <stdatomic.h>
+#include <fcntl.h>
+#include <stdlib.h>
 #include <string.h>
+#include <sys/syscall.h>
 #include <unistd.h>
 
 #ifndef TRAP_TRACE
@@ -191,5 +195,48 @@ int pf_watchdog_start(unsigned seconds, void (*on_timeout)(PfContext *context, v
     sigemptyset(&action.sa_mask);
     if (sigaction(SIGALRM, &action, NULL) != 0) return PF_EIO;
     alarm(seconds);
+    return 0;
+}
+
+/* ---- Thread dump on request (old src/probe.c:228, 233-246, 397-398) ---------------------- */
+
+static void (*_Atomic dump_callback)(const PfContext *, uint64_t, void *);
+static void *_Atomic dump_user;
+
+static void dump_signal(int sig, siginfo_t *info, void *context) {
+    (void)sig;
+    (void)info;
+    void (*dump)(const PfContext *, uint64_t, void *) = atomic_load(&dump_callback);
+    if (!dump) return;
+    PfContext pf_context = {(ucontext_t *)context};
+    dump(&pf_context, (uint64_t)gettid(), atomic_load(&dump_user));
+}
+
+int pf_dump_signal_install(void (*dump)(const PfContext *context, uint64_t tid, void *user), void *user) {
+    if (!dump) return PF_EINVAL;
+    atomic_store(&dump_user, user);
+    atomic_store(&dump_callback, dump);
+    struct sigaction action;
+    memset(&action, 0, sizeof action);
+    action.sa_sigaction = dump_signal;
+    action.sa_flags = SA_SIGINFO | SA_RESTART;
+    sigemptyset(&action.sa_mask);
+    return sigaction(SIGUSR2, &action, NULL) == 0 ? 0 : PF_EIO;
+}
+
+int pf_dump_other_threads(void) {
+    if (!atomic_load(&dump_callback)) return PF_EINVAL;
+    int dir = open("/proc/self/task", O_RDONLY | O_DIRECTORY);
+    char buffer[4096];
+    long n;
+    pid_t self = gettid();
+    while (dir >= 0 && (n = syscall(SYS_getdents64, dir, buffer, sizeof(buffer))) > 0)
+        for (long at = 0; at < n;) {
+            struct { uint64_t ino; int64_t off; unsigned short reclen; unsigned char type; char name[]; } *d = (void *)(buffer + at);
+            pid_t tid = (pid_t)strtol(d->name, NULL, 10);
+            if (tid > 0 && tid != self) { syscall(SYS_tgkill, getpid(), tid, SIGUSR2); usleep(20000); }
+            at += d->reclen;
+        }
+    usleep(100000);
     return 0;
 }

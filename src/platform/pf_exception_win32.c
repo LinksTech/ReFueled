@@ -14,6 +14,7 @@
 #include <windows.h>
 #include <stddef.h>
 #include "pf_exception.h"
+#include "pf_thread.h"
 #include "pf_win32_internal.h"
 
 /* ---- Contexts ---------------------------------------------------------------------------- */
@@ -223,4 +224,32 @@ int pf_watchdog_start(unsigned seconds, void (*on_timeout)(PfContext *context, v
     ReleaseSRWLockExclusive(&watchdog_lock);
     WakeConditionVariable(&watchdog_changed);
     return result;
+}
+
+/* ---- Thread dump on request (IF-10): no signals on Windows, the watchdog samples each thread -- */
+
+static void (*volatile dump_callback)(const PfContext *context, uint64_t tid, void *user);
+static void *volatile dump_user;
+
+int pf_dump_signal_install(void (*dump)(const PfContext *context, uint64_t tid, void *user), void *user) {
+    if (!dump) return PF_EINVAL;
+    dump_user = user;
+    dump_callback = dump;
+    return 0;
+}
+
+static void dump_sampled(const PfContext *context, void *tid) {
+    dump_callback(context, *(const uint64_t *)tid, dump_user);
+}
+
+static void dump_visit(uint64_t tid, const char *name, void *self) {
+    (void)name;
+    if (tid && tid != *(const uint64_t *)self) pf_thread_sample(tid, dump_sampled, &tid);
+}
+
+int pf_dump_other_threads(void) {
+    if (!dump_callback) return PF_EINVAL;
+    uint64_t self = GetCurrentThreadId();
+    pf_threads_list(dump_visit, &self);
+    return 0;
 }

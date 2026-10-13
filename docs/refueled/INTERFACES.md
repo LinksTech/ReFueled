@@ -1,6 +1,6 @@
 # ReFueled – Schnittstellen (Vertrag)
 
-Stand 2026-10-13, Version **IF-9** (eingefroren seit IF-2, Paket F1). Die Header unter `src/platform/` sind die
+Stand 2026-10-13, Version **IF-10** (eingefroren seit IF-2, Paket F1). Die Header unter `src/platform/` sind die
 verbindliche Fassung. Dieses Dokument erklärt sie, ordnet jede Funktion den heutigen
 Linux-Fundstellen zu und protokolliert Änderungen (§6). **Ändern darf sie nur Opus.**
 
@@ -100,6 +100,8 @@ vk_pipeline_cache.cpp:1086, vk_rasterizer.cpp:1198).
 | `pf_fault_resume_at` | probe.c:145–153 (`pthread_sigmask` + `siglongjmp`) | CONTEXT aus `pf_sigjmp_buf` laden, `EXCEPTION_CONTINUE_EXECUTION` |
 | `pf_exit_now` | `_exit` in Handlern | `TerminateProcess(GetCurrentProcess())` |
 | `pf_watchdog_start` | probe.c:399–401 (`alarm` + SIGALRM) | Timer-Thread |
+| `pf_dump_signal_install` (IF-10) | probe.c:228, 397–398 (SIGUSR2-Handler `thread_dump`) | speichert nur den Callback |
+| `pf_dump_other_threads` (IF-10) | probe.c:233–246 (getdents64 + `tgkill(SIGUSR2)`, 20 ms / 100 ms) | `pf_threads_list` + `pf_thread_sample` |
 
 Reihenfolge der Handler (D8), registriert durch: (1) `bbgpu_handle_fault`, eingetragen von probe.c
 vor `bbgpu_init`, (2) Rücksprung `runtime_fault_recover` (probe.c), (3) Diagnose-Hooks (shim,
@@ -119,7 +121,7 @@ sigaction-Flags je Signal wie bisher (SIGTRAP mit `SA_NODEFER`). Der Dispatcher 
 | `pf_cpu_count_allowed` | bbport_threads.h:18–20 | `GetProcessAffinityMask` |
 | `pf_thread_cpu_time_ns` | liverpool.cpp:123 | `GetThreadTimes` |
 | `pf_threads_list` | probe.c:234–244, runtime_kernel.c:540–545, vk_scheduler.cpp:41 (`/proc/self/task`) | `CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD)` |
-| `pf_thread_sample` | probe.c:228/242 (SIGUSR2), runtime_kernel.c:505–570 (SIGPROF) | `SuspendThread` + `GetThreadContext` + `ResumeThread` |
+| `pf_thread_sample` | runtime_kernel.c:505–574 (SIGPROF, asynchron; IF-10) | `SuspendThread` + `GetThreadContext` + `ResumeThread` (synchron) |
 
 ### 3.7 `pf_fs.h`, `pf_process.h`, `pf_log.h`
 | Funktion | Ersetzt | Windows |
@@ -172,3 +174,4 @@ sigaction-Flags je Signal wie bisher (SIGTRAP mit `SA_NODEFER`). Der Dispatcher 
 | IF-7 | 2026-10-13 | `pf_context_fault_access` (pf_exception.h; Linux REG_ERR&2 wie shadPS4 IsWriteError, Windows aus dem Exception-Record, PfContext trägt dort `access`); neuer Header `pf_time.h`: `pf_sleep_until_ns` (Linux clock_nanosleep TIMER_ABSTIME aus runtime_audio.c), `pf_utc_offset_seconds(utc, *is_dst)` (Linux localtime_r tm_gmtoff/tm_isdst); `pf_fs_stamp(path, *mtime_ns, *size)` (Linux stat st_mtim). Test test_time.c (MSVC-Lauf 28 grün) | Bedarf aus V1 (IsWriteError), R4 (sleep_until, st_mtim), R1/R5a (tm_gmtoff) |
 | IF-8 | 2026-10-13 | `pf_random_bytes` (getrandom-Schleife / BCryptGenRandom), `pf_cpu_times(thread, *user_ns, *system_ns)` (getrusage SELF/THREAD / GetProcess-/GetThreadTimes) in pf_process.h; `pf_current_cpu` (sched_getcpu / GetCurrentProcessorNumber) in pf_thread.h. MSVC-Lauf test_time 32 grün | Bedarf aus R1 (kern.arandom, sceKernelGetRandomNumber, getrusage, get_current_cpu) |
 | IF-9 | 2026-10-13 | `PfStat` + `pf_fs_stat`/`pf_fs_fstat` (pf_fs.h; Linux: Felder 1:1 aus stat/fstat wie convert_stat sie las, Windows: GetFileInformationByHandle), Makro `PF_DIRENT_TYPE(entry)` (Linux d_type; Windows-Gap: DT_UNKNOWN → stat-Rückfall). MSVC-Lauf test_time 39 grün | runtime_file.c/runtime_savedata.c ohne Windows-Stub-Wände (R2c) |
+| IF-10 | 2026-10-13 | `pf_dump_signal_install(dump, user)` und `pf_dump_other_threads()` neu (pf_exception.h; Linux: alter SIGUSR2-Handler und alte Watchdog-Schleife wörtlich, Windows: Callback + Abtasten je Thread). `pf_thread_sample` unter Linux wieder SIGPROF und asynchron (Vertrag: `user` muss den Aufruf überleben), unter Windows synchron wie bisher; SIGRTMIN+2 entfällt. MSVC-Zwischenlauf test_dump 9 grün; test_thread angepasst (wartet auf asynchrone Abtastung) | Rückweg D20, Freigabe PL 2026-10-13: Linux-Verhalten wie Upstream |

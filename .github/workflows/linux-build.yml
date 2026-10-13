@@ -1,11 +1,9 @@
 # refueled: Linux regression in GitHub Actions. Replaces the WSL script docs/refueled/tools/linux-regress.sh.
 # PREPARED ONLY: not run yet (there is no GitHub repo for the port). No secrets needed.
 #
-# Known, accepted deviations from the pre-port Linux behaviour (do not "fix" in CI; see
-# docs/refueled/ARCHITECTURE.md):
-#   D20  The loader no longer installs a SIGUSR2 handler. The watchdog thread dump samples each
-#        thread via pf_thread_sample (SIGRTMIN+2, synchronous, <= 2 s per thread). An external
-#        `kill -USR2` now terminates the process instead of printing a thread dump.
+# Known deviations from the pre-port Linux behaviour: none. (D20, the SIGUSR2 thread dump
+# replaced by sampling, was reverted by IF-10: SIGUSR2 dumps a thread as before, the watchdog
+# signals every thread, BB_SAMPLE_THREAD samples with SIGPROF; SIGRTMIN+2 is no longer used.)
 name: linux-build
 
 on:

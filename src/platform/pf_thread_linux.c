@@ -183,88 +183,42 @@ int pf_threads_list(void (*visit)(uint64_t tid, const char *name, void *user), v
     return visited;
 }
 
-/* Sampling. ONE mechanism for the SIGUSR2 thread dump (probe.c:228/242) and the SIGPROF sampler
- * (runtime_kernel.c:555): tgkill of a real-time signal, SIGRTMIN+2. It does not collide with
- * the existing users: SIGUSR2 (probe.c thread_dump) and SIGPROF (runtime_kernel.c sample_handler)
- * keep their own handlers until K3/K5 move them here; no source in src/, gpu/shim or
- * gpu/shadps4 uses a real-time signal; glibc/NPTL keeps SIGRTMIN-2 .. SIGRTMIN-1 (SIGCANCEL,
- * SIGSETXID) below SIGRTMIN. Real-time signals are queued, not merged, so a request is not lost
- * when another signal is pending.
- *
- * One request at a time (mutex around the slot). The handler runs on the target thread, builds a
- * PfContext around the ucontext and calls sample(context, user), then posts the semaphore
- * (sem_post is async-signal-safe). The caller waits up to 2 s. On a timeout the caller and the
- * handler decide with `claimed` who owns the request: if the caller wins, a late handler returns
- * at once without calling sample (the caller's stack data may be gone). */
-typedef struct {
-    void (*sample)(const PfContext *context, void *user);
-    void *user;
-    atomic_int claimed;
-    sem_t done;
-} SampleRequest;
-
-static pthread_mutex_t sample_lock = PTHREAD_MUTEX_INITIALIZER;
-static SampleRequest sample_request;
-static _Atomic(SampleRequest *) sample_active;
-static int sample_installed;
+/* Sampling: the BB_SAMPLE_THREAD sampler of runtime_kernel.c as before the port (old
+ * runtime_kernel.c:511-535, 555 and sample_start): SIGPROF, handler SA_SIGINFO|SA_RESTART with an
+ * empty mask, tgkill per sample, no waiting for the handler (IF-10, ARCHITECTURE.md D20). The
+ * handler is installed on the first call instead of at sample_start; no SIGPROF is sent before. */
+static void (*_Atomic sample_function)(const PfContext *context, void *user);
+static void *_Atomic sample_user;
+static pthread_once_t sample_once = PTHREAD_ONCE_INIT;
+static int sample_install_result;
 
 static void sample_handler(int sig, siginfo_t *info, void *context) {
-    int saved_errno = errno;
-    SampleRequest *request = atomic_load(&sample_active);
     (void)sig;
     (void)info;
-    if (request && !atomic_exchange(&request->claimed, 1)) {
-        PfContext wrapped;
-        wrapped.native = (ucontext_t *)context;
-        request->sample(&wrapped, request->user);
-        sem_post(&request->done);
-    }
-    errno = saved_errno;
+    void (*sample)(const PfContext *, void *) = atomic_load(&sample_function);
+    if (!sample) return;
+    PfContext wrapped;
+    wrapped.native = (ucontext_t *)context;
+    sample(&wrapped, atomic_load(&sample_user));
+}
+
+static void sample_install(void) {
+    struct sigaction action;
+    memset(&action, 0, sizeof action);
+    action.sa_sigaction = sample_handler;
+    action.sa_flags = SA_SIGINFO | SA_RESTART;
+    sigemptyset(&action.sa_mask);
+    sample_install_result = sigaction(SIGPROF, &action, NULL) == 0 ? 0 : PF_EINVAL;
 }
 
 int pf_thread_sample(uint64_t tid, void (*sample)(const PfContext *context, void *user), void *user) {
-    int result = 0;
-    struct timespec deadline;
     if (!sample || tid == 0) return PF_EINVAL;
-    pthread_mutex_lock(&sample_lock);
-    if (!sample_installed) {
-        struct sigaction action;
-        memset(&action, 0, sizeof action);
-        action.sa_sigaction = sample_handler;
-        action.sa_flags = SA_SIGINFO | SA_RESTART;
-        sigemptyset(&action.sa_mask);
-        if (sem_init(&sample_request.done, 0, 0) != 0 || sigaction(SIGRTMIN + 2, &action, NULL) != 0) {
-            pthread_mutex_unlock(&sample_lock);
-            return PF_EINVAL;
-        }
-        sample_installed = 1;
-    }
-    sample_request.sample = sample;
-    sample_request.user = user;
-    atomic_store(&sample_request.claimed, 0);
-    atomic_store(&sample_active, &sample_request);
-    if (syscall(SYS_tgkill, getpid(), (pid_t)tid, SIGRTMIN + 2) != 0) {
-        result = errno == ESRCH ? PF_ENOENT : PF_EINVAL;
-        atomic_store(&sample_active, NULL);
-        pthread_mutex_unlock(&sample_lock);
-        return result;
-    }
-    clock_gettime(CLOCK_REALTIME, &deadline);
-    deadline.tv_sec += 2;
-    for (;;) {
-        if (sem_timedwait(&sample_request.done, &deadline) == 0) break;
-        if (errno == EINTR) continue;
-        if (!atomic_exchange(&sample_request.claimed, 1)) {
-            result = PF_ETIMEDOUT; /* the handler never started: it will see claimed and return */
-            break;
-        }
-        /* The handler is running sample(): wait for it without a limit. */
-        while (sem_wait(&sample_request.done) != 0 && errno == EINTR) {}
-        break;
-    }
-    atomic_store(&sample_active, NULL);
-    pthread_mutex_unlock(&sample_lock);
-    return result;
+    atomic_store(&sample_user, user);
+    atomic_store(&sample_function, sample);
+    pthread_once(&sample_once, sample_install);
+    if (sample_install_result) return sample_install_result;
+    if (syscall(SYS_tgkill, getpid(), (pid_t)tid, SIGPROF) != 0) return errno == ESRCH ? PF_ENOENT : PF_EINVAL;
+    return 0;
 }
 
 /* runtime_kernel.c get_current_cpu: sched_getcpu. */
