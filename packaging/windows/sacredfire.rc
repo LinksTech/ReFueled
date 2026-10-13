@@ -1,0 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0-or-later */
+/* refueled: resources of sacredfire.exe (llvm-windres): the application manifest, resource type
+ * RT_MANIFEST (24), id 1 (CREATEPROCESS_MANIFEST_RESOURCE_ID). */
+1 24 "sacredfire.manifest"
