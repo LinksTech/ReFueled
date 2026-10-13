@@ -97,6 +97,11 @@ int32_t runtime_guest_errno(int host_errno);
 /* Host-owned memory the guest sees, below 1 TiB. refueled: prot is PF_PROT_* (same values as
  * Linux PROT_READ/WRITE/EXEC). */
 void *runtime_low_map(size_t size, int prot);
+/* refueled: claims the guest address layout ([LOW_MIN, USER_MIN) and [USER_MIN, USER_MAX)) with
+ * pf_vm_reserve_layout and sets up the low heap in the top 512 MiB of the low region
+ * (pf_low_heap_init; Linux: both no-ops). Called once by main right after pf_init, before anything
+ * maps guest memory, so the first runtime_low_map (the image) still lands at LOW_MIN. 0 or PF_E*. */
+int runtime_memory_init_layout(void);
 /* GPU library (gpu/shim/bbport_guest_memory.cpp): allocates the device memory chunk backing
  * physical [phys, phys+size) and returns its handle, PF_MEM_HANDLE_NONE when it cannot (Linux: a
  * dma-buf fd, as the int it was before). refueled: return type PfMemHandle (was int). */
