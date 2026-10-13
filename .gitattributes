@@ -1,0 +1,26 @@
+# ReFueled: line endings. First-party scripts and sources are LF in the index and in every checkout,
+# also on Windows with core.autocrlf=true (a CRLF run.sh fails in bash with "$'\r': command not found").
+*.sh  text eol=lf
+*.py  text eol=lf
+*.c   text eol=lf
+*.h   text eol=lf
+*.cpp text eol=lf
+*.S   text eol=lf
+*.inc text eol=lf
+*.nix text eol=lf
+
+# Binary data: never converted.
+*.ttf binary
+*.otf binary
+*.png binary
+*.jpg binary
+*.ico binary
+*.bin binary
+*.spv binary
+*.zip binary
+*.gz  binary
+
+# Vendored code keeps the bytes of its upstream (some of it is CRLF in the index); not converted.
+/gpu/third_party/** -text
+/third_party/** -text
+/gpu/shadps4/** -text
