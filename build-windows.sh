@@ -206,13 +206,19 @@ elif [[ -z ${skip[link]:-} ]]; then
     done < <(find "$out/gpu" out/deps/prefix/lib -name '*.a' 2>/dev/null | sort)
     zydis=()
     if ! printf '%s\n' "${gpu_archives[@]}" | grep -qi 'zydis'; then zydis=(-lZydis -lZycore); fi
+    # The GPU library's system libraries (gpu/CMakeLists.txt: target_link_libraries(bbgpu PUBLIC
+    # shell32 ws2_32 mswsock)) travel only as CMake usage requirements. kernel32 before mincore, so
+    # that only what kernel32 lacks (CreateFileMapping2, common/io_file.cpp) comes from mincore.
+    windows_libraries=(-lshell32 -lws2_32 -lmswsock -lkernel32 -lmincore)
+    linked=0
     "$CXX" -O2 -g -gcodeview "${ldflags[@]}" -Wl,--pdb="$out/sacredfire.pdb" \
         "${common_objects[@]}" "$out/libpf.a" "$out/libatrac9.a" "$out/sacredfire.res.o" \
         -Wl,--start-group "${gpu_archives[@]}" "${zydis[@]}" -Wl,--end-group \
-        "${gpu_pkg_libraries[@]}" "${libraries[@]}" -lpthread -lm -o "$out/sacredfire.exe" 2> "$link_log" \
+        "${gpu_pkg_libraries[@]}" "${libraries[@]}" "${windows_libraries[@]}" -lpthread -lm -o "$out/sacredfire.exe" 2> "$link_log" \
+        && linked=1 \
         || { if ((keep_going)); then echo "FAILED link ($link_log)" >&2; failures=$((failures + 1)); else exit 1; fi; }
     if ((keep_going)) && [[ ! -s $link_log ]]; then rm -f "$link_log"; fi
-    echo "Built $PWD/$out/sacredfire.exe"
+    if ((linked)); then echo "Built $PWD/$out/sacredfire.exe"; fi
     # out/win/VERSION: the source revision this build came from (as build.sh): the nearest v* tag,
     # else the commit; "-dirty" when tracked files differ from it. The FSR-Vulkan patch applied
     # inside its submodule does not count as a change.
