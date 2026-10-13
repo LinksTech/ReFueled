@@ -24,6 +24,10 @@ struct Chunk {
     std::uint32_t index = 0; ///< creation order (stable key)
 };
 
+/// refueled (D12): whether this platform can export GPU memory as a handle the runtime maps
+/// (Linux dma-buf: true; Windows: false, logging "bbport: guest-in-place GPU memory is not
+/// supported on Windows" once). Usable() and PcModelGpu() are false when it is.
+bool PlatformSupported();
 /// Whether the runtime can use such chunks: dma-buf export and mmap of the dma-buf. Checked once
 /// with a small chunk. A driver that maps at page offsets gets 256 MiB chunks (the game's mappings
 /// start inside them); NVIDIA's dma-buf maps at offset 0 only (the grid made every mapping after
