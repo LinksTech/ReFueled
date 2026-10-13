@@ -21,5 +21,10 @@ int pf_fs_remove_tree(const char *path);
  * MOVEFILE_REPLACE_EXISTING|MOVEFILE_WRITE_THROUGH). */
 int pf_fs_rename_replace(const char *from, const char *to);
 
+/* Modification time in nanoseconds since 1970 and size of `path` (stat st_mtim/st_size /
+ * GetFileAttributesExW), for "changed since last time" checks; either pointer may be NULL.
+ * 0, PF_ENOENT or PF_EIO. */
+int pf_fs_stamp(const char *path, int64_t *mtime_ns, uint64_t *size);
+
 PF_EXTERN_C_END
 #endif

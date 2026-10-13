@@ -47,6 +47,11 @@ void pf_context_set(PfContext *context, PfReg reg, uint64_t value) {
 
 void *pf_context_native(PfContext *context) { return context->native; }
 
+/* Page-fault error code bit 1 = write (shadPS4 common/signal_context.cpp IsWriteError, Linux). */
+int pf_context_fault_access(const PfContext *context) {
+    return (context->native->uc_mcontext.gregs[REG_ERR] & 0x2) ? PF_ACCESS_WRITE : PF_ACCESS_READ;
+}
+
 /* ---- Fault dispatcher -------------------------------------------------------------------- */
 
 #define MAX_HANDLERS 16

@@ -46,6 +46,8 @@ void pf_context_set(PfContext *context, PfReg reg, uint64_t value) {
 
 void *pf_context_native(PfContext *context) { return context->native; }
 
+int pf_context_fault_access(const PfContext *context) { return context->access; }
+
 /* ---- Fault dispatcher -------------------------------------------------------------------- */
 
 #define MAX_HANDLERS 16
@@ -101,7 +103,7 @@ static LONG CALLBACK dispatch(EXCEPTION_POINTERS *pointers) {
     CONTEXT *native = pointers->ContextRecord;
     if (fault.kind == PF_FAULT_ACCESS && pf_win32_memory_transient_fault(fault.address, fault.access))
         return EXCEPTION_CONTINUE_EXECUTION;
-    PfContext context = {native};
+    PfContext context = {native, fault.access};
     if (fault.kind == PF_FAULT_BREAKPOINT) native->Rip += 1; /* behind the int3, as on Linux */
     const LONG count = InterlockedCompareExchange(&entry_count, 0, 0);
     for (LONG i = 0; i < count; ++i) {
