@@ -228,6 +228,48 @@ static void test_files(void) {
     CHECK(fd >= 0);
     if (fd >= 0) close(fd);
 
+    /* O_SYNC (runtime_file.c: flags & 0x80): write/pwrite succeed and the data is visible through a
+     * second descriptor; on Windows the gap layer marks the descriptor and commits after each write,
+     * the mark is gone after close and a reused descriptor number without O_SYNC is not marked. */
+    {
+        char sp[1024];
+        snprintf(sp, sizeof sp, "%s/sync_probe.bin", W);
+        unlink(sp);
+        int sfd = open(sp, O_SYNC | O_CREAT | O_WRONLY | O_TRUNC | O_CLOEXEC, 0644);
+        CHECK(sfd >= 0);
+        if (sfd >= 0) {
+#ifdef _WIN32
+            CHECK(pf_gap_fd_is_sync(sfd) == 1);
+#endif
+            CHECK(write(sfd, "abcd", 4) == 4);
+            CHECK(pwrite(sfd, "XY", 2, 8) == 2);
+            int rfd = open(sp, O_RDONLY | O_CLOEXEC);
+            CHECK(rfd >= 0);
+            if (rfd >= 0) {
+#ifdef _WIN32
+                CHECK(pf_gap_fd_is_sync(rfd) == 0);
+#endif
+                char got[16] = {0};
+                CHECK(pread(rfd, got, 10, 0) == 10);
+                CHECK(memcmp(got, "abcd", 4) == 0 && memcmp(got + 8, "XY", 2) == 0);
+                close(rfd);
+            }
+            close(sfd);
+#ifdef _WIN32
+            CHECK(pf_gap_fd_is_sync(sfd) == 0);
+#endif
+            int again = open(sp, O_WRONLY | O_CLOEXEC); /* typically reuses sfd's number */
+            CHECK(again >= 0);
+            if (again >= 0) {
+#ifdef _WIN32
+                CHECK(pf_gap_fd_is_sync(again) == 0);
+#endif
+                close(again);
+            }
+        }
+        unlink(sp);
+    }
+
     /* fseeko/ftello */
     FILE *f = fopen(p, "rb");
     CHECK(f != NULL);
