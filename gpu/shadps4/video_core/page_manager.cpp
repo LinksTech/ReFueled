@@ -16,12 +16,13 @@
 #include <array>
 #include <atomic>
 #include <cstdio>
-#include <sys/uio.h>
-#include <dlfcn.h>
+#include <limits> // refueled: was only included in the __linux__ block; SignalImpl needs it everywhere
+#include <mutex>  // refueled: ditto (std::scoped_lock in Impl)
 #include <string>
 #include <fmt/format.h>
-#include <ucontext.h>
-#include <unistd.h>
+#include "platform/pf_exception.h" // refueled: PfContext, pf_context_get (replaces <ucontext.h>)
+#include "platform/pf_memory.h"    // refueled: pf_read_memory_safe (replaces <sys/uio.h>, <unistd.h>)
+#include "platform/pf_process.h"   // refueled: pf_symbolize (replaces <dlfcn.h>)
 #include "core/signals.h"
 #include "video_core/page_manager.h"
 #include "video_core/renderer_vulkan/vk_rasterizer.h"
@@ -79,12 +80,13 @@ std::string SiteName(u64 key) {
         return fmt::format("{}+{:#x}", access, key);
     }
     const u64 address = key & ~HostSite;
-    Dl_info info{};
-    if (dladdr(reinterpret_cast<void*>(address), &info) && info.dli_sname) {
-        return fmt::format("{}host:{}+{:#x}", access, info.dli_sname, address - u64(info.dli_saddr));
+    PfSymbol info{}; // refueled: was Dl_info
+    const bool found = pf_symbolize(address, &info) == 0; // refueled: was dladdr(address, &info)
+    if (found && info.symbol[0]) { // refueled: was info.dli_sname
+        return fmt::format("{}host:{}+{:#x}", access, info.symbol, address - u64(info.symbol_address));
     }
-    if (info.dli_fname) {
-        return fmt::format("{}host:{}+{:#x}", access, info.dli_fname, address - u64(info.dli_fbase));
+    if (found && info.module[0]) { // refueled: was info.dli_fname
+        return fmt::format("{}host:{}+{:#x}", access, info.module, address - u64(info.module_base));
     }
     return fmt::format("{}host:{:#x}", access, address);
 }
@@ -101,16 +103,17 @@ struct ImageFaultSite {
 std::array<ImageFaultSite, 256> image_fault_sites;
 
 void NoteFaultSite(void* context, VAddr address) {
-    const auto* g = static_cast<const ucontext_t*>(context)->uc_mcontext.gregs;
+    const auto* pf = static_cast<const PfContext*>(context); // refueled: was the ucontext_t gregs
     current_fault_rip = 0;
-    const u64 rip = u64(g[REG_RIP]);
+    const u64 rip = pf_context_get(pf, PF_REG_RIP); // refueled: was g[REG_RIP]
     const bool guest_code = rip >= GuestImage && rip < GuestImageEnd;
     u64 caller = 0;
     if (guest_code) {
         // The caller: [rbp + 8] when the guest code keeps frames (its memcpy-like leaves do not).
         u64 saved[2] = {};
-        iovec local{saved, sizeof(saved)}, remote{reinterpret_cast<void*>(g[REG_RBP]), sizeof(saved)};
-        if (process_vm_readv(getpid(), &local, 1, &remote, 1, 0) == ssize_t(sizeof(saved)) &&
+        // refueled: was process_vm_readv(getpid(), {saved}, {g[REG_RBP]}) with iovecs
+        if (pf_read_memory_safe(saved, uintptr_t(pf_context_get(pf, PF_REG_RBP)), sizeof(saved)) ==
+                int64_t(sizeof(saved)) &&
             saved[1] >= GuestImage && saved[1] < GuestImageEnd) {
             caller = saved[1];
         }
@@ -118,10 +121,10 @@ void NoteFaultSite(void* context, VAddr address) {
         // Host code (a libc import the port runs natively, the runtime): the first guest return
         // address on the stack is its guest caller.
         std::array<u64, 64> stack{};
-        iovec local{stack.data(), sizeof(stack)},
-            remote{reinterpret_cast<void*>(g[REG_RSP]), sizeof(stack)};
-        const ssize_t got = process_vm_readv(getpid(), &local, 1, &remote, 1, 0);
-        for (ssize_t i = 0; i < got / 8; ++i) {
+        // refueled: was process_vm_readv(getpid(), {stack}, {g[REG_RSP]}) with iovecs
+        const int64_t got = pf_read_memory_safe(
+            stack.data(), uintptr_t(pf_context_get(pf, PF_REG_RSP)), sizeof(stack));
+        for (int64_t i = 0; i < got / 8; ++i) { // refueled: was ssize_t
             if (stack[i] >= GuestImage && stack[i] < GuestImageEnd) {
                 caller = stack[i];
                 break;
@@ -130,7 +133,7 @@ void NoteFaultSite(void* context, VAddr address) {
     }
     // Guest code: its offset in the image; host code: its address with HostSite set.
     const u64 key = (guest_code ? rip - GuestImage : rip | HostSite) |
-                    (Common::IsWriteError(context) ? 0 : ReadSite);
+                    (pf_context_fault_access(static_cast<const PfContext*>(context)) == PF_ACCESS_WRITE ? 0 : ReadSite); // refueled:
     current_fault_rip = key;
     current_fault_caller = caller ? caller - GuestImage : 0;
     for (u64 i = 0, slot = (key * 0x9E3779B97F4A7C15ull) >> 55; i < fault_sites.size(); ++i) {
@@ -292,11 +295,12 @@ struct PageManager::Impl {
         if (is_gpu_thread) {
             BbStats::gpu_signal_faults.fetch_add(1, std::memory_order_relaxed);
         }
-        if (Common::IsWriteError(context)) {
+        // refueled: the access kind comes from the PfContext (Linux REG_ERR&2 as IsWriteError).
+        if (pf_context_fault_access(static_cast<const PfContext*>(context)) == PF_ACCESS_WRITE) {
             BbStats::Timer timer{BbStats::t_write_faults};
             const bool handled = rasterizer->OnWriteFault(
                 addr, is_gpu_thread,
-                u64(static_cast<const ucontext_t*>(context)->uc_mcontext.gregs[REG_RIP]));
+                pf_context_get(static_cast<const PfContext*>(context), PF_REG_RIP)); // refueled: was ucontext gregs[REG_RIP]
             current_fault_rip = 0;
             return handled;
         } else {
