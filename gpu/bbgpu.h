@@ -6,6 +6,9 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
+/* refueled: a thread's registers at a fault (src/platform/pf_exception.h; Linux: wraps the
+ * ucontext_t, Windows: the CONTEXT). */
+typedef struct PfContext PfContext;
 typedef struct {
     const char *title;          /* window title */
     const char *serial;         /* CUSA id, names the pipeline cache */
@@ -21,10 +24,11 @@ void bbgpu_register_kernel(void);
 int bbgpu_init(const BbGpuConfig *config);
 /* Function for an imported NID ("NID#lib#mod"), or 0 when the GPU library does not provide it. */
 uintptr_t bbgpu_resolve(const char *scoped_nid);
-/* Called first by the loader's SIGSEGV handler: 1 when a GPU page-tracking fault was handled. */
-int bbgpu_handle_fault(void *ucontext, void *address);
+/* Called first by the loader's access-fault handler: 1 when a GPU page-tracking fault was handled.
+ * refueled: PfContext (was the signal handler's ucontext). */
+int bbgpu_handle_fault(PfContext *context, void *address);
 /* BB_WRITE_LOG=1: prints the logged GPU-side writes to guest memory near the fault. */
-void bbgpu_dump_guest_writes(void *ucontext);
+void bbgpu_dump_guest_writes(PfContext *context);
 /* Keyboard text entry through the game window (IME dialog). begin returns 0 when
  * no window exists; poll returns 0 typing, 1 confirmed, 2 cancelled (UTF-8 text). */
 int bbgpu_text_input_begin(const char *initial_utf8, const char *prompt_utf8);

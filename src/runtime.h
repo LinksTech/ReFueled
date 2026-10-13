@@ -4,13 +4,13 @@
 #include <stdint.h>
 #include <stddef.h>
 #include <string.h>
-#ifndef _WIN32
-#include <setjmp.h>
+/* refueled: register-only jumps (Linux: sigjmp_buf/sigsetjmp as before) and memory handles. */
+#include "platform/pf_jmp.h"
+#include "platform/pf_memory.h"
 /* Recovery point for speculative guest memory reads on this thread (probe.c fault handler). */
-extern __thread sigjmp_buf *runtime_fault_recover;
+extern __thread pf_sigjmp_buf *runtime_fault_recover;
 /* Restarts the game (in-game settings menu, render resolution change). */
 void runtime_restart(void);
-#endif
 #define ABI __attribute__((sysv_abi))
 typedef void (ABI *GuestCallback)(void);
 void runtime_start(uint64_t capabilities);
@@ -94,7 +94,13 @@ int64_t runtime_file_getdents(int fd, char *buffer, uint64_t size, int64_t *base
 void runtime_thread_keys_cleanup(void);
 /* Guest-visible errno values are FreeBSD's. */
 int32_t runtime_guest_errno(int host_errno);
+/* Host-owned memory the guest sees, below 1 TiB. refueled: prot is PF_PROT_* (same values as
+ * Linux PROT_READ/WRITE/EXEC). */
 void *runtime_low_map(size_t size, int prot);
+/* GPU library (gpu/shim/bbport_guest_memory.cpp): allocates the device memory chunk backing
+ * physical [phys, phys+size) and returns its handle, PF_MEM_HANDLE_NONE when it cannot (Linux: a
+ * dma-buf fd, as the int it was before). refueled: return type PfMemHandle (was int). */
+void runtime_memory_set_guest_chunk_allocator(PfMemHandle (*alloc)(uint64_t phys, uint64_t size));
 uintptr_t runtime_ajm_resolve(const char *name);
 void runtime_ajm_report(void);
 uintptr_t runtime_audio_resolve(const char *name);
