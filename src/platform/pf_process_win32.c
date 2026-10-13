@@ -1,5 +1,6 @@
 /* SPDX-License-Identifier: GPL-2.0-or-later */
 /* refueled: pf_process on Windows. No DbgHelp yet: symbol names stay empty. */
+#include <stdlib.h>
 #include <string.h>
 #include <wchar.h>
 #include <windows.h>
@@ -119,7 +120,10 @@ int pf_gpu_memory_in_use(uint64_t *bytes) {
 int pf_restart_through_launcher(void) {
     STARTUPINFOW startup;
     PROCESS_INFORMATION process;
-    const wchar_t *original = GetCommandLineW();
+    /* run-windows.sh sets BB_RESTART_COMMAND to its own invocation through MSYS2 bash, so the restart
+     * goes through the launch script as on Linux; without it, the own command line. */
+    const wchar_t *restart = _wgetenv(L"BB_RESTART_COMMAND");
+    const wchar_t *original = restart && restart[0] ? restart : GetCommandLineW();
     size_t count = wcslen(original) + 1;
     wchar_t *command = (wchar_t *)HeapAlloc(GetProcessHeap(), 0, count * sizeof(wchar_t));
     if (!command) return PF_EIO;
