@@ -17,7 +17,9 @@
  * does, with an inner/outer dead zone (BB_PAD_DEADZONE, default 5; BB_PAD_DEADZONE_OUTER, default
  * 127). BB_PAD_CENTER=lx,ly,rx,ry overrides the neutral, BB_PAD_CENTER_CAL=0 disables the
  * measurement. SacredFire keeps one calibration per controller port (split screen). */
+#ifndef _GNU_SOURCE
 #define _GNU_SOURCE
+#endif
 #include "runtime.h"
 #include "gpu/bbgpu.h"
 #include <stdio.h>
@@ -26,7 +28,7 @@
 #include <pthread.h>
 #include <time.h>
 #include <SDL3/SDL.h>
-#include <sys/stat.h>
+#include "platform/pf_fs.h"
 
 #define ERR_INVALID_ARG ((int32_t)0x80920001)
 #define ERR_INVALID_HANDLE ((int32_t)0x80920003)
@@ -75,7 +77,8 @@ static SDL_Gamepad *gamepad;
 typedef struct { char want[64]; SDL_Gamepad *pad; int opened, present; } Port;
 static Port ports[PORTS]; /* ports[0].want overrides BB_GAMEPAD for port 1 */
 static unsigned pad_rescan_attempts; /* misses in a row looking for a bound controller (current_gamepad) */
-static struct timespec config_mtime; static uint64_t config_checked;
+static uint64_t config_checked;
+static int64_t config_mtime; /* refueled: pf_fs_stamp mtime_ns (was st_mtim) */
 static void load_ports(void) {
     const char *path=getenv("BB_CONFIG");
     FILE *f=path ? fopen(path,"r") : NULL;
@@ -104,10 +107,10 @@ static void refresh_ports(uint64_t now) {
     if (now-config_checked<1000000) return;
     config_checked=now;
     const char *path=getenv("BB_CONFIG");
-    struct stat st;
-    if (!path || stat(path,&st)) return;
-    if (st.st_mtim.tv_sec==config_mtime.tv_sec && st.st_mtim.tv_nsec==config_mtime.tv_nsec) return;
-    config_mtime=st.st_mtim;
+    int64_t st;
+    if (!path || pf_fs_stamp(path,&st,NULL)) return;
+    if (st==config_mtime) return;
+    config_mtime=st;
     load_ports();
 }
 /* 1 when the gamepad id is claimed by a port other than `except` (ports 2..4 with a name). */
@@ -601,16 +604,16 @@ static struct { uint32_t buttons; int stick[4]; int touch_side; } injected={0,{-
 static int replay_armed;      /* 1 while a BB_PAD_REPLAY recording plays, 2 once it ended */
 static uint64_t replay_start; /* 0: (re)start at the next sample */
 static void read_inject(void) {
-    static const char *path; static int checked; static uint64_t last_check; static struct timespec mtime;
+    static const char *path; static int checked; static uint64_t last_check; static int64_t mtime;
     if (!checked) { path=getenv("BB_PAD_FILE"); checked=1; }
     if (!path || !*path) return;
     uint64_t now=now_us();
     if (now-last_check<20000) return;
     last_check=now;
-    struct stat st;
-    if (stat(path,&st)!=0) return;
-    if (st.st_mtim.tv_sec==mtime.tv_sec && st.st_mtim.tv_nsec==mtime.tv_nsec) return;
-    mtime=st.st_mtim;
+    int64_t st;
+    if (pf_fs_stamp(path,&st,NULL)!=0) return;
+    if (st==mtime) return;
+    mtime=st;
     FILE *f=fopen(path,"r");
     if (!f) return;
     static const struct { const char *name; uint32_t ps; } names[]={
