@@ -1,9 +1,14 @@
 # refueled: Linux regression in GitHub Actions. Replaces the WSL script docs/refueled/tools/linux-regress.sh.
 # PREPARED ONLY: not run yet (there is no GitHub repo for the port). No secrets needed.
 #
-# Known deviations from the pre-port Linux behaviour: none. (D20, the SIGUSR2 thread dump
-# replaced by sampling, was reverted by IF-10: SIGUSR2 dumps a thread as before, the watchdog
-# signals every thread, BB_SAMPLE_THREAD samples with SIGPROF; SIGRTMIN+2 is no longer used.)
+# Known, accepted deviations from the pre-port Linux behaviour (docs/refueled/ARCHITECTURE.md
+# D21; none of them shows in normal operation, do not "fix" them in CI):
+#   1 runtime_low_map area ends 512 MiB earlier (low heap)   2 guest errno cell at another address
+#   3 sysctl kern.arandom fills completely, EIO on failure    4 localtime_r/getrusage error paths
+#   5 stale-temp cleanup also descends on DT_UNKNOWN          6 MAP_FIXED_NOREPLACE on kernels < 4.17
+#   7 pool()/map_phys error paths                             8 CPU count / thread-name fallbacks
+#   9 diagnostic texts (name truncation, own backtrace format) 10 scripts use UTF-8 regardless of locale
+# D20 (SIGUSR2 thread dump replaced by sampling) was reverted by IF-10; SIGRTMIN+2 is not used.
 name: linux-build
 
 on:

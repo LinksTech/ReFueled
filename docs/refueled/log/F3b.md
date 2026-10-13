@@ -1,5 +1,7 @@
 # Paket-Log F3b (Sonnet): build-windows.sh baut sacredfire.exe
 
+Verhaltensabweichung Linux: keine (nur Windows-Dateien)
+
 Status: **ungetestet bis CLANG64** (nicht installiert). Geprueft nur: `bash -n build-windows.sh`
 gruen; `sacredfire.manifest` ist wohlgeformtes XML (PowerShell `[xml]`).
 
@@ -50,3 +52,6 @@ Keine Linux-wirksame Stelle geaendert (build.sh unberuehrt), daher keine Alt/Neu
 
 ## Review Opus
 Nur Windows-Dateien, Linux unberührt. Offen für Welle B: Linkzeile der statischen bbgpu-Abhängigkeiten aus der CMake-Konfiguration übernehmen (geratene Liste ersetzen) bzw. eigenes Exe-Ziel in gpu/CMakeLists.txt, falls einfacher.
+
+## Prüfung Opus 2026-10-13 (Pflichtfeld)
+Feld bei der einmaligen Durchsicht aller Logs gesetzt und gegen die alt↔neu-Tabelle geprüft.

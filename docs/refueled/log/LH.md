@@ -1,5 +1,7 @@
 # Paket LH – Low-Heap unter 1 TiB
 
+Verhaltensabweichung Linux: keine (pf_low_* = calloc/aligned_alloc/free)
+
 Stand 2026-10-13, ausgeführt von Sonnet, Prüfung und Commit durch Opus.
 
 ## Dateien (alle neu)
@@ -44,3 +46,6 @@ Wachstum, ein Mutex.
   `test_linux_wrappers` entfällt dort (win32-Fassung braucht `pf_low_heap_init` mit echtem Bereich).
 - `pf_lowheap.c` selbst wurde mit MSVC nicht übersetzt (pthread.h fehlt dort); gedacht für clang + winpthreads.
 - K1 muss `pf_vm_alloc_fixed` / `pf_vm_free` liefern; `pf_low_heap_init` gibt `PF_EBUSY` beim zweiten Aufruf.
+
+## Prüfung Opus 2026-10-13 (Pflichtfeld)
+Feld bei der einmaligen Durchsicht aller Logs gesetzt und gegen die alt↔neu-Tabelle geprüft.

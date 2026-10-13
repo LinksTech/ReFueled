@@ -1,5 +1,7 @@
 # Paket-Log T2b (Portabilitätsfixes in scripts/*.py und .gitattributes, Sonnet)
 
+Verhaltensabweichung Linux: mods.py/patches.py lesen UTF-8 unabhängig von der Locale (D21 Nr. 10)
+
 ## Was gemacht
 Alle Änderungen sind Kodierungs-/Zeilenende-Angaben; Logik und Linux-Ausgabe bleiben gleich.
 
@@ -89,3 +91,6 @@ Windows neu und Linux liefern damit **dieselben Bytes** (per `cmp` bestätigt).
 - `tools/gen_import_names.py` (Kodierung, CRLF) und `bbport_settings.cpp` ("w" statt "wb") brauchen jeweils eigene Anweisung.
 - Entscheidung Befund 11 (Ressourcenzählung in `analysis.json`).
 - `docs/refueled/audit/GPU-MINGW.md` hat CRLF im Index.
+
+## Prüfung Opus 2026-10-13 (Pflichtfeld)
+Feld bei der einmaligen Durchsicht aller Logs gesetzt und gegen die alt↔neu-Tabelle geprüft.

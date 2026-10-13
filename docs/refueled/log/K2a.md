@@ -1,5 +1,7 @@
 # Paket K2a – pf_memory Linux
 
+Verhaltensabweichung Linux: pf_vm_alloc_fixed gibt auf Kerneln < 4.17 eine an anderer Adresse gelandete Abbildung frei (EEXIST statt still angenommen) (D21 Nr. 6)
+
 Stand 2026-10-13, ausgeführt von Sonnet, Prüfung und Commit durch Opus.
 Nicht Teil: Umstellung von runtime_memory.c / probe.c / Shims (Nix-Gesamtbuild), test_memory.c
 und linux-platform-tests.sh (Opus).
@@ -69,3 +71,6 @@ von mir geändert). Mit den Skript-Flags (`-D_GNU_SOURCE`, direkt in einem Aufru
 -O2, -O0 und UBSan: jeweils `test_memory: FAILED line 222: pf_vm_alloc_fixed(USER_MIN - PAGE, 2 * PAGE,
 PF_PROT_READ) == PF_EINVAL` / `test_memory: 1 of 83 checks failed`; ASan: wie oben, Abbruch in der
 Schattenlücke bei 0x8_0000_0000. Der einzige Fehlschlag ist die Zeile 222 (Plattformunterschied).
+
+## Prüfung Opus 2026-10-13 (Pflichtfeld)
+Feld bei der einmaligen Durchsicht aller Logs gesetzt und gegen die alt↔neu-Tabelle geprüft.

@@ -1,6 +1,6 @@
 # ReFueled – Architektur des Windows-Ports
 
-Stand 2026-10-13 (Phase 2 freigegeben, Freigaben in §4 D1, D10, D17; Planänderung D19: kein WSL/Linux lokal; D20 aufgehoben: Linux-Thread-Dump wieder per SIGUSR2). Basis: Branch `refueled/windows` ab f1f7935
+Stand 2026-10-13 (Phase 2 freigegeben, Freigaben in §4 D1, D10, D17; Planänderung D19: kein WSL/Linux lokal; D20 aufgehoben: Linux-Thread-Dump wieder per SIGUSR2; D21: bekannte Linux-Abweichungen). Basis: Branch `refueled/windows` ab f1f7935
 (= Tag v0.2.1 + 7 Zeilen STATUS.md). Lizenz GPL-2.0-or-later wie SacredFire.
 
 Zugehörig: [U1-SPEICHER.md](U1-SPEICHER.md), [U2-SIGNALE-THREADS.md](U2-SIGNALE-THREADS.md),
@@ -205,6 +205,29 @@ ersten Abtastaufruf installiert statt in `sample_start` (vorher wird kein SIGPRO
 der Dump liest Gastframes mit `pf_read_memory_safe` (unter Linux dasselbe `process_vm_readv`).
 Windows ist unverändert (Watchdog-Thread, SuspendThread). Belege: docs/refueled/log/IF-10.md.
 
+### D21 Bekannte Linux-Abweichungen (Durchsicht aller Paket-Logs 2026-10-13)
+Ergebnis der einmaligen Durchsicht aller 35 Paket-Logs (Regel Projektleitung 2026-10-13). Keine weitere
+Abweichung wirkt im Normalbetrieb; D20 ist aufgehoben. Entschieden: alle unten beibehalten, weil
+sie nur Fehlerpfade, sehr alte Kernel oder Diagnosetexte betreffen oder für < 1 TiB nötig sind.
+Rückbau jeweils möglich, falls gewünscht.
+
+| Nr. | Paket | Abweichung unter Linux | Wann sichtbar | Entscheidung |
+|---|---|---|---|---|
+| 1 | K2 | Bereich für `runtime_low_map` endet 512 MiB früher (31,5 statt 32 GiB), dort liegt der Low-Heap (D10) | nur wenn der Low-Bereich vollläuft (Image + Stacks nutzen einen Bruchteil) | beibehalten, nötig für LH |
+| 2 | K5 | Gast-errno-Zelle liegt im TCB-Block (+16 Byte) bzw. in einer Low-Heap-Zelle statt in `_Thread_local`; andere Adresse, gleicher Inhalt | Gast sieht eine andere Adresse | beibehalten, nötig für < 1 TiB |
+| 3 | R1b | `sysctl kern.arandom` füllt den Puffer vollständig (vorher ein einzelnes `getrandom`, kurze Lesung als Erfolg möglich); Fehler als EIO statt errno | nur bei durch Signal unterbrochenem `getrandom` > 256 Byte bzw. Fehler | beibehalten (Fehlerbehebung) |
+| 4 | R1b | `localtime_r`-Fehlerpfad (ERR 22) entfällt; `getrusage`-Fehler liefert EIO statt uninitialisierter Werte | nur bei Fehlschlag dieser Aufrufe (praktisch nie) | beibehalten |
+| 5 | R2c | `remove_stale_temps` steigt auch bei `d_type == DT_UNKNOWN` per stat in Unterordner ab (vorher nicht) | nur auf Dateisystemen ohne `d_type` | beibehalten (verhält sich wie upstream auf üblichen Dateisystemen) |
+| 6 | K2a, S2 | `MAP_FIXED_NOREPLACE` auf Kerneln < 4.17: eine an anderer Adresse gelandete Abbildung wird freigegeben und als EEXIST gemeldet (vorher still angenommen) | nur Kernel < 4.17 | beibehalten (Fehlerbehebung) |
+| 7 | K2 | `pool()` versucht nach einem fehlgeschlagenen Anlegen erneut (vorher "ok" mit NULL); `map_phys`-Meldung zeigt bei seltenen errno "Input/output error" | nur Fehlerpfade | beibehalten |
+| 8 | K5a, S2 | CPU-Zahl-Rückfall `sysconf(_SC_NPROCESSORS_ONLN)` statt `hardware_concurrency()`; Thread-Liste meldet unlesbares `comm` als "?" statt den Eintrag zu überspringen | nur wenn `sched_getaffinity` bzw. das Lesen von `comm` scheitert | beibehalten |
+| 9 | V1, V2, R1, S2 | Diagnosetexte: Symbol-/Modulnamen auf 127/259 Zeichen gekürzt; `vk_scheduler`-Backtrace selbst formatiert statt `backtrace_symbols_fd` (gleiches Muster, evtl. andere Symbolnamen); Wait-Trace bei `dli_fname == NULL` mit `%p` | nur in Diagnoseausgaben (BB_*-Schalter, Abstürze) | beibehalten |
+| 10 | T2b, T2c | `mods.py`, `patches.py`, `gen_import_names.py` lesen/schreiben UTF-8 unabhängig von der Locale | nur mit Nicht-UTF-8-Locale (vorher Fehler bzw. andere Kodierung) | beibehalten |
+
+Ohne beobachtbaren Unterschied (daher "keine"): Reihenfolge der zwei SIGTRAP-Handler (S1/K8, Fälle
+disjunkt), `pause()` → Schlafschleife (S2), calloc statt malloc (R5a), rekursiver Mutex per
+`pthread_once` (R4), `lstat` vor `nftw` (R2b), Installationszeitpunkt des SIGPROF-Handlers (IF-10).
+
 ### D16 Issue #2 (überschriebenes Dword) nicht jagen
 `BB_ASYNC_PIPELINES` bleibt aus. Tritt `SacredFire issue #2:` im Windows-Log auf, wird es mit
 Logauszug in `docs/refueled/ISSUE2-WINDOWS.md` notiert, ohne Port-Fehlersuche.
@@ -230,6 +253,11 @@ Dokumente unter `docs/refueled/` deutsch, Code und Kommentare englisch (wie der 
   Keine `git config`, kein Push, keine Remotes.
 - Jedes Paket liefert kompilierenden Code, mindestens einen Test und einen Eintrag in
   `docs/refueled/log/<ID>.md` (was gemacht, was offen, Testbefehle mit Ergebnis).
+- Jedes Paket-Log hat das Pflichtfeld `Verhaltensabweichung Linux: keine / <Beschreibung>`
+  (AGENT-REGELN.md). Opus prüft es beim Merge ausdrücklich gegen die alt↔neu-Tabelle. Jeder Eintrag
+  ungleich "keine" ist eine Entscheidung von Opus (beibehalten mit Begründung in D21 oder
+  zurückbauen) und wird der Projektleitung im nächsten Bericht gemeldet, nie nur im Log. Beibehaltene
+  Abweichungen stehen zusätzlich im Kopf von `.github/workflows/linux-build.yml`.
 - Nach jedem Merge: `linux_hits.py` ausführen, Wert in METRICS.md eintragen.
 - Temporäre Dateien nur unter `C:\CTR Reload\tmp\` bzw. im Paket-Worktree unter `out/`.
 - Fehler nicht wegimprovisieren: Ein festhängendes Paket meldet die Fehlermeldung wörtlich und

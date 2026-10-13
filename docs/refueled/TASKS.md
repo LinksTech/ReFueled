@@ -10,6 +10,8 @@ Gemeinsame Abnahme für **jedes** Paket (zusätzlich zur Paketzeile): kompiliert
 (MSYS2 CLANG64; bis CLANG64 da ist: MSVC-Zwischenlauf, wo möglich, sonst "ungebaut" im Log);
 mindestens ein Test; `docs/refueled/log/<ID>.md` mit alt↔neu-Tabelle für jede Linux-wirksame
 Änderung (Opus prüft beim Merge die Linux-Gleichheit per Review und vermerkt das im Log);
+Pflichtfeld `Verhaltensabweichung Linux: keine / <Beschreibung>` im Log (Opus prüft es beim Merge;
+ungleich "keine" = Entscheidung Opus, Meldung an die Projektleitung im nächsten Bericht, Eintrag in D21);
 `linux_hits.py` fällt oder bleibt gleich. Linux-Build und Linux-Tests laufen nur in CI
 (`.github/workflows/linux-build.yml`, aktiv sobald das GitHub-Repo existiert) – Status `deferred-ci`.
 

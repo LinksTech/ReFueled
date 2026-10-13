@@ -21,6 +21,14 @@
   `| alt (Datei:Zeile, Code) | neu (Datei:Zeile, Code) | Linux-Gleichheit (Begründung: gleicher
   Systemaufruf/gleiche Flags/gleiche Reihenfolge/gleicher Meldungstext, über pf_*_linux.c:Zeile) |`
   für **jede** geänderte Linux-wirksame Stelle. Opus prüft sie beim Merge Zeile für Zeile.
+- **Pflichtfeld im Paket-Log** (Regel Projektleitung 2026-10-13): eine eigene Zeile
+  `Verhaltensabweichung Linux: keine` oder `Verhaltensabweichung Linux: <Beschreibung>`.
+  Abweichung heißt: irgendein beobachtbarer Unterschied unter Linux gegenüber vorher, unter
+  irgendeiner Bedingung (Gast-sichtbare Werte und Adressen, Fehlercodes, Dateien, Signale,
+  Ausgaben/Logtexte, Zeitverhalten, auch nur in Fehlerpfaden oder seltenen Umgebungen). Reine
+  Umformungen ohne beobachtbaren Unterschied (z. B. calloc statt malloc vor vollständiger
+  Initialisierung) sind "keine", gern mit Begründung in Klammern. Im Zweifel beschreiben.
+  Ein Eintrag ungleich "keine" ist eine Entscheidung für Opus, nie nur ein Log-Eintrag.
 - Die Linux-Implementierungen stehen in `src/platform/pf_*_linux.c` (verschobener Code); vor dem
   Umstellen dort nachsehen, dass die pf-Funktion exakt den alten Aufruf macht. Weicht sie ab: nicht
   umstellen, sondern melden.
@@ -28,4 +36,4 @@
   Includes/Typen gegen die Header prüfen, im Log "ungebaut bis CLANG64" vermerken.
 - Festhängen oder Architekturfrage: wörtlich melden und an Opus zurückgeben, nicht improvisieren.
 - Schlussmeldung: geänderte Dateien, Prüfungen mit Ergebnis, Zahl der umgestellten Stellen,
-  offene Punkte, Schnittstellenbedarf.
+  das Feld "Verhaltensabweichung Linux", offene Punkte, Schnittstellenbedarf.

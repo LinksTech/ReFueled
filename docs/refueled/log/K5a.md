@@ -1,5 +1,7 @@
 # Paket-Log K5a (Sonnet): pf_thread + pf_tls Linux
 
+Verhaltensabweichung Linux: CPU-Zahl-Rückfall sysconf statt hardware_concurrency; unlesbares comm in der Thread-Liste als "?" (D21 Nr. 8); SIGRTMIN+2-Abtastung durch IF-10 entfernt
+
 ## Dateien
 `src/platform/pf_thread_linux.c`, `src/platform/pf_tls_linux.c`, `tests/refueled/test_thread.c`
 (Linux-Teil; Windows-Teil schreibt K6 in dieselbe Datei, Plattformhilfen in `#ifdef _WIN32`).
@@ -66,3 +68,6 @@ Die Aufrufer (runtime_thread.c, runtime_kernel.c, probe.c, Shims) sind nicht umg
 
 ## Nachtrag 2026-10-13 (IF-10)
 Der SIGRTMIN+2-Mechanismus von `pf_thread_sample` ist entfernt. Linux nutzt wieder SIGPROF ohne Warten (alter Sampler), der Thread-Dump wieder SIGUSR2 (`pf_dump_signal_install` / `pf_dump_other_threads`). Siehe log/IF-10.md.
+
+## Prüfung Opus 2026-10-13 (Pflichtfeld)
+Feld bei der einmaligen Durchsicht aller Logs gesetzt und gegen die alt↔neu-Tabelle geprüft.

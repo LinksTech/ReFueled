@@ -1,5 +1,7 @@
 # Paket-Log T2a (Portabilitätsaudit der Skripte, Sonnet)
 
+Verhaltensabweichung Linux: keine (nur Audit)
+
 ## Was gemacht
 - Gelesen: `scripts/prepare.py`, `link_libc.py`, `link_modules.py`, `patches.py`, `game_check.py`, `mods.py`, `content_profile.py`,
   `tools/gen_import_names.py`, `run.sh`, `build-windows.sh` (Kopf), Tests `tests/test_*.py` (Köpfe, Aufrufe von `subprocess`, `symlink`, `tempfile`).
@@ -33,3 +35,6 @@ Kleine Versuche (nur Textausgabe, keine Dateien im Repo): Pfadvergleich `Path.re
 - Siehe Abschnitt 6 im Bericht (u. a. MSYS2-Python 3.14 nicht installiert, 1.21-Spielordner für den Byte-Vergleich fehlt).
 - Wichtigster Befund: run.sh:62-64 löscht unter Windows den Spielordner (Pfadvergleich `C:\…` gegen `/c/…`), bevor `run-windows.sh`
   existiert, ist das zu härten.
+
+## Prüfung Opus 2026-10-13 (Pflichtfeld)
+Feld bei der einmaligen Durchsicht aller Logs gesetzt und gegen die alt↔neu-Tabelle geprüft.

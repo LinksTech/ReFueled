@@ -1,5 +1,7 @@
 # Paket-Log CI - Linux-Pruefung in GitHub Actions (vorbereitet, nicht ausgefuehrt)
 
+Verhaltensabweichung Linux: keine (nur Workflow und Testskript-Pfade)
+
 Stand 2026-10-13, ausgefuehrt von Sonnet, Pruefung und Commit durch Opus.
 
 ## Dateien
@@ -29,3 +31,6 @@ Quellen und Exit-Code unveraendert (nur `cd` und `out` geaendert). Keine geaende
 - YAML mit Windows-Python/PyYAML geladen: Syntax ok, Trigger und Job-Schluessel wie erwartet.
 - `bash -n` fuer beide Skripte: ok.
 - Workflow und Skripte nicht ausgefuehrt (kein push, kein act).
+
+## Prüfung Opus 2026-10-13 (Pflichtfeld)
+Feld bei der einmaligen Durchsicht aller Logs gesetzt und gegen die alt↔neu-Tabelle geprüft.

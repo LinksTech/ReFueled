@@ -1,5 +1,7 @@
 # Paket R2b – Aufrufer in runtime_savedata.c / runtime_file.c
 
+Verhaltensabweichung Linux: keine (lstat vor nftw ohne beobachtbaren Unterschied)
+
 Stand 2026-10-13, ausgeführt von Sonnet, Prüfung und Commit durch Opus. Ungebaut bis CLANG64.
 
 ## Geändert (nur src/runtime_savedata.c)
@@ -62,3 +64,6 @@ Verschwunden gegenüber vorher: der `ftw`/`nftw`-Treffer in runtime_savedata.c. 
 
 ## Prüfungen
 Kein Build (kein CLANG64). Gelesen: pf_fs.h, pf_fs_linux.c, R2.md, LLP64.md. `git diff` geprüft; keine Reste von `nftw`, `FTW_`, `remove_entry`, `ftw.h` in beiden Dateien (grep).
+
+## Prüfung Opus 2026-10-13 (Pflichtfeld)
+Feld bei der einmaligen Durchsicht aller Logs gesetzt und gegen die alt↔neu-Tabelle geprüft.

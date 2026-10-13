@@ -1,5 +1,7 @@
 # Paket R2c – runtime_file.c und runtime_savedata.c ohne Windows-Stub-Wände
 
+Verhaltensabweichung Linux: remove_stale_temps steigt bei DT_UNKNOWN per stat in Unterordner ab (D21 Nr. 5); stat-Fehlercodes seit 5799a43 wieder -errno
+
 Stand 2026-10-13, ausgeführt von Sonnet, Prüfung und Commit durch Opus. Ungebaut bis CLANG64 (nur gelesen und gegen die Header geprüft).
 Geändert: `src/runtime_file.c`, `src/runtime_savedata.c`, dieses Log. "neu"-Zeilen = Stand im Worktree.
 
@@ -59,3 +61,6 @@ Stat-Stellen auf PfStat: 9 (list_directory-Fallback, convert_stat, open_for_comm
 
 ## Review Opus
 Linux-Gleichheit geprüft: convert_stat-Zuweisungen gleich, fstatat(dirfd,name,0) ≡ stat(path/name) (beide folgen Links), d_type über PF_DIRENT_TYPE; O_SYNC nur wo definiert. Fehlercodes: pf_fs_stat gibt unter Linux seit diesem Merge -errno unverändert zurück (to_pf_stat angepasst), damit gleich. Offen (Folgepaket B): ..-Prüfung in translate kennt nur "/" (Windows akzeptiert auch "\"); Verzeichnis-open ohne O_DIRECTORY unter Windows.
+
+## Prüfung Opus 2026-10-13 (Pflichtfeld)
+Feld bei der einmaligen Durchsicht aller Logs gesetzt und gegen die alt↔neu-Tabelle geprüft.

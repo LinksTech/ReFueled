@@ -1,5 +1,7 @@
 # R5a – übrige Runtime-Dateien (Low-Heap, LLP64, Linux-only-Reste)
 
+Verhaltensabweichung Linux: keine (calloc statt malloc nur vor vollständiger Initialisierung)
+
 Ausgeführt von Sonnet, zu prüfen von Opus. Ungebaut bis CLANG64. Nicht committet.
 Geändert: `src/runtime.c`, `src/runtime_mutex.c`, `src/runtime_rwlock.c`, dieses Log.
 `src/runtime.h` bindet `platform/pf_memory.h` schon ein (pf_low_* dort deklariert), keine neuen Includes nötig.
@@ -101,3 +103,6 @@ Beide Dateien binden `platform/pf_time.h` ein. linux_hits: runtime_rtc.c verlier
 
 ## Review Opus
 Linux-Gleichheit geprüft: calloc/free = pf_low_*, malloc→pf_low_calloc nur bei sofort vollständig initialisierten Objekten, tm_gmtoff über pf_utc_offset_seconds mit derselben Eingabezeit.
+
+## Prüfung Opus 2026-10-13 (Pflichtfeld)
+Feld bei der einmaligen Durchsicht aller Logs gesetzt und gegen die alt↔neu-Tabelle geprüft.

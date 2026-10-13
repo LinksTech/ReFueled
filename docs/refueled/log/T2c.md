@@ -1,5 +1,7 @@
 # Paket-Log T2c (run-windows.sh, Sonnet)
 
+Verhaltensabweichung Linux: gen_import_names.py liest/schreibt UTF-8 unabhängig von der Locale (D21 Nr. 10); run-windows.sh nur Windows
+
 Status: **ungetestet** bis MSYS2 CLANG64, ein Spielordner 1.21 und `out/win/sacredfire.exe` (F3b) vorhanden sind.
 Nur `bash -n` und ein Trockenlauf unter Git-Bash (MINGW64) wurden gemacht.
 
@@ -71,3 +73,6 @@ Die Backslashes erscheinen im Trockenlauf verdoppelt (`C:\\CTR\ Reload`), weil `
 
 ## Review Opus
 Löschschutz (guarded_rm, 11/11 Selbsttest) und Pfadnormalisierung geprüft. Ergänzt: BB_RESTART_COMMAND (Neustart über run-windows.sh), tools/gen_import_names.py mit encoding/newline (Befund 21, Linux bytegleich).
+
+## Prüfung Opus 2026-10-13 (Pflichtfeld)
+Feld bei der einmaligen Durchsicht aller Logs gesetzt und gegen die alt↔neu-Tabelle geprüft.
