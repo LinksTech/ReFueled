@@ -1,6 +1,9 @@
 /* Exercise actual guest file operations on a linked overlay and writable saves. */
 #include "../src/runtime_file.c"
 #include <assert.h>
+#ifdef _WIN32
+#include <windows.h>
+#endif
 static int32_t guest_errno;
 int32_t *runtime_errno(void) { return &guest_errno; }
 int32_t runtime_guest_errno(int e) { return e; }
@@ -11,7 +14,15 @@ uintptr_t runtime_lookup(const RuntimeExport *table,size_t n,const char *name) {
     return 0;
 }
 int main(void) {
+#ifdef _WIN32
+    /* refueled: the temp root comes from TMP (never a fixed /tmp); forward slashes for mkdtemp. */
+    char root[512];
+    {   const char *tmp=getenv("TMP"); if (!tmp || !*tmp) tmp=getenv("TEMP"); assert(tmp && *tmp);
+        snprintf(root,sizeof(root),"%s/bbport-mod-files-XXXXXX",tmp);
+        for (char *c=root;*c;++c) if (*c=='\\') *c='/'; }
+#else
     char root[]="/tmp/bbport-mod-files-XXXXXX";
+#endif
     assert(mkdtemp(root));
     char game[512],user[512],source[512],link[512];
     snprintf(game,sizeof(game),"%s/game",root);
@@ -20,7 +31,14 @@ int main(void) {
     snprintf(link,sizeof(link),"%s/game/asset.dcx",root);
     assert(!mkdir(game,0755));
     FILE *f=fopen(source,"w"); assert(f); assert(fputs("modded",f)>=0); assert(!fclose(f));
+#ifdef _WIN32
+    /* refueled: symlink creation needs privileges on Windows (MODLOADER.md section 2). A hard link
+     * stands in, so the read-only overlay checks still run; symlink traversal is not covered. */
+    puts("skipped on Windows: symlink traversal (hard link used instead)");
+    assert(CreateHardLinkA(link,source,NULL));
+#else
     assert(!symlink(source,link));
+#endif
     runtime_file_configure(game,user);
     for (int i=0;i<3;++i) {
         const char *path=i==0 ? "/app0/asset.dcx" : i==1 ? "/hostapp/asset.dcx" : "asset.dcx";
