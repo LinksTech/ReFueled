@@ -9,7 +9,11 @@
 #include <stdlib.h>
 #include <string.h>
 
-#ifndef _WIN32
+#ifdef _WIN32
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+#include "platform/pf_win32_internal.h"
+#else
 #include <sys/mman.h>
 #include <sys/wait.h>
 #include <signal.h>
@@ -53,6 +57,39 @@ static void trigger_single_step(void) {
                      : : : "memory", "cc");
 }
 #define TF_BIT 0x100u
+#define HOST_ACCESS_CODE SIGSEGV
+static void page_free(void *p) { munmap(p, PAGE); }
+#else
+#define PAGE 4096
+#define TF_BIT 0x100u
+#define HOST_ACCESS_CODE ((int)EXCEPTION_ACCESS_VIOLATION)
+static void *page_new(int writable) {
+    return VirtualAlloc(NULL, PAGE, MEM_RESERVE | MEM_COMMIT, writable ? PAGE_READWRITE : PAGE_READONLY);
+}
+static void page_unprotect(void *p) {
+    DWORD old;
+    VirtualProtect(p, PAGE, PAGE_READWRITE, &old);
+}
+static void page_free(void *p) { VirtualFree(p, 0, MEM_RELEASE); }
+static void *page_unmapped(void) {
+    void *p = page_new(1);
+    if (p) page_free(p);
+    return p;
+}
+/* Generated code (works with every compiler): int3; ret, and pushfq; or qword [rsp], 0x100;
+ * popfq; nop; nop; ret. */
+static unsigned char *code_page;
+static void code_init(void) {
+    static const unsigned char code[] = {0xcc, 0xc3, 0x90, 0x90,
+                                         0x9c, 0x48, 0x81, 0x0c, 0x24, 0x00, 0x01, 0x00, 0x00, 0x9d, 0x90, 0x90, 0xc3};
+    code_page = VirtualAlloc(NULL, PAGE, MEM_RESERVE | MEM_COMMIT, PAGE_EXECUTE_READWRITE);
+    if (code_page) memcpy(code_page, code, sizeof code);
+}
+static void trigger_breakpoint(volatile uint64_t *after) {
+    *after = (uint64_t)(uintptr_t)(code_page + 1);
+    ((void (*)(void))(void *)code_page)();
+}
+static void trigger_single_step(void) { ((void (*)(void))(void *)(code_page + 4))(); }
 #endif
 
 /* ---- handlers ---------------------------------------------------------------------------- */
@@ -85,9 +122,7 @@ static PfFaultResult second_handler(const PfFault *fault, PfContext *context, vo
     if (g_mode == MODE_UNPROTECT || g_mode == MODE_ORDER) {
         g_fault_address = fault->address;
         g_host_code = fault->host_code;
-#ifndef _WIN32
         page_unprotect(g_page);
-#endif
         return PF_FAULT_HANDLED;
     }
     return PF_FAULT_CONTINUE_SEARCH;
@@ -129,6 +164,18 @@ static void test_context(void) {
     CHECK(uc.uc_mcontext.gregs[REG_EFL] == 0x1000 + PF_REG_EFLAGS);
     CHECK(uc.uc_mcontext.gregs[REG_R15] == 0x1000 + PF_REG_R15);
 }
+#else
+static void test_context(void) {
+    CONTEXT native;
+    memset(&native, 0, sizeof native);
+    PfContext context = {&native};
+    CHECK(pf_context_native(&context) == &native);
+    for (int r = 0; r < PF_REG_COUNT; r++) pf_context_set(&context, (PfReg)r, 0x1000u + (uint64_t)r);
+    int ok = 1;
+    for (int r = 0; r < PF_REG_COUNT; r++) if (pf_context_get(&context, (PfReg)r) != 0x1000u + (uint64_t)r) ok = 0;
+    CHECK(ok);
+    CHECK(native.Rip == 0x1000 + PF_REG_RIP && native.EFlags == 0x1000 + PF_REG_EFLAGS && native.R15 == 0x1000 + PF_REG_R15);
+}
 #endif
 
 static void test_write_fault(void) {
@@ -139,9 +186,9 @@ static void test_write_fault(void) {
     *p = 7; /* faults, the handler lifts the protection, the write is repeated */
     CHECK(*p == 7);
     CHECK(g_fault_address == (uintptr_t)p);
-    CHECK(g_host_code == SIGSEGV);
+    CHECK(g_host_code == HOST_ACCESS_CODE);
     g_mode = MODE_NONE;
-    munmap((void *)p, PAGE);
+    page_free((void *)p);
 }
 
 static void test_resume(void) {
@@ -187,7 +234,7 @@ static void test_order(void) {
     g_mode = MODE_NONE;
     CHECK(g_order_count == 2 && g_order[0] == 1 && g_order[1] == 2);
     CHECK(*p == 1);
-    munmap((void *)p, PAGE);
+    page_free((void *)p);
 }
 
 #ifndef _WIN32
@@ -235,22 +282,84 @@ static void test_watchdog(void) {
     CHECK(wait_child(pid, &status));
     CHECK(WIFEXITED(status) && WEXITSTATUS(status) == 7);
 }
+#else
+/* Children are this program started again with a role argument. */
+static DWORD run_child(const char *role) {
+    char path[MAX_PATH], command[MAX_PATH + 64];
+    GetModuleFileNameA(NULL, path, sizeof path);
+    snprintf(command, sizeof command, "\"%s\" %s", path, role);
+    STARTUPINFOA startup;
+    PROCESS_INFORMATION process;
+    memset(&startup, 0, sizeof startup);
+    startup.cb = sizeof startup;
+    if (!CreateProcessA(NULL, command, NULL, NULL, FALSE, 0, NULL, NULL, &startup, &process)) return 0xffffffffu;
+    WaitForSingleObject(process.hProcess, 20000);
+    DWORD code = 0xfffffffeu;
+    GetExitCodeProcess(process.hProcess, &code);
+    CloseHandle(process.hThread);
+    CloseHandle(process.hProcess);
+    return code;
+}
+
+static void watchdog_exit(PfContext *context, void *user) {
+    if (context != NULL) pf_exit_now(99); /* Windows passes no context */
+    pf_exit_now((int)(intptr_t)user);
+}
+
+static int child(const char *role) {
+    SetErrorMode(SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX); /* no crash dialog */
+    if (!strcmp(role, "--unhandled")) {
+        pf_fault_add_handler(1u << PF_FAULT_ACCESS, first_handler, NULL); /* declines (MODE_NONE) */
+        *(volatile int *)page_unmapped() = 1;
+        return 0;
+    }
+    if (!strcmp(role, "--watchdog")) {
+        pf_watchdog_start(1, watchdog_exit, (void *)(intptr_t)42);
+        Sleep(10000);
+        return 5;
+    }
+    if (!strcmp(role, "--watchdog-off")) {
+        pf_watchdog_start(1, watchdog_exit, (void *)(intptr_t)42);
+        pf_watchdog_start(0, NULL, NULL);
+        Sleep(2000);
+        return 7;
+    }
+    return 3;
+}
+
+static void test_unhandled(void) { CHECK(run_child("--unhandled") == (DWORD)EXCEPTION_ACCESS_VIOLATION); }
+
+static void test_watchdog(void) {
+    CHECK(run_child("--watchdog") == 42);
+    CHECK(run_child("--watchdog-off") == 7);
+}
+
+/* A fault inside a view that pf_memory_win32.c is remapping right now is repeated; outside, not. */
+static void test_transient(void) { CHECK(pf_win32_memory_transient_fault(0x10, PF_ACCESS_READ) == 0); }
 #endif
 
-int main(void) {
-    test_registration();
-#ifndef _WIN32
-    test_context();
+int main(int argc, char **argv) {
+#ifdef _WIN32
+    if (argc == 2) return child(argv[1]);
+    code_init();
+    test_transient();
+#else
+    (void)argc;
+    (void)argv;
 #endif
+    test_registration();
+    test_context();
     test_write_fault();
-    test_resume();
+#if !defined(_MSC_VER)
+    test_resume(); /* needs pf_setjmp_impl (Windows: pf_jmp_win32.S, K6) */
+#else
+    (void)test_resume;
+#endif
     test_breakpoint();
     test_single_step();
     test_order();
-#ifndef _WIN32
     test_unhandled();
     test_watchdog();
-#endif
     if (g_failed) { printf("test_exception: %d of %d checks FAILED\n", g_failed, g_checks); return 1; }
     printf("test_exception: %d checks passed\n", g_checks);
     return 0;
