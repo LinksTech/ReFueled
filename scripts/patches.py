@@ -31,7 +31,7 @@ def read_settings(path):
     """bbport.ini as a dict (key=value lines; # comments)."""
     settings={}
     if path.exists():
-        for line in path.read_text().splitlines():
+        for line in path.read_text(encoding='utf-8').splitlines():
             key,sep,value=line.partition('=')
             if sep and not line.startswith('#'): settings[key.strip()]=value.strip()
     return settings
@@ -85,7 +85,7 @@ def external_selection(found, config, ini=None):
     isEnabled; bbport.ini patch_* keys (GAME_PATCH_KEYS, the in-game menu) add to it."""
     settings={}
     if config and Path(config).is_file():
-        settings=json.loads(Path(config).read_text())
+        settings=json.loads(Path(config).read_text(encoding='utf-8'))
     enabled,disabled=set(settings.get('enabled',[])),set(settings.get('disabled',[]))
     for key,patch in GAME_PATCH_KEYS.items():
         if (ini or {}).get(key)=='1': enabled.add(patch); disabled.discard(patch)

@@ -256,7 +256,7 @@ def prepare(game, out):
         if path.is_file():
             resources[path.relative_to(game / 'dvdroot_ps4').parts[0]] += 1
             total_bytes += path.stat().st_size
-    (out / 'profile.txt').write_text((game_profile['name'] if game_profile else 'unknown') + '\n')
+    (out / 'profile.txt').write_text((game_profile['name'] if game_profile else 'unknown') + '\n', encoding='utf-8', newline='\n')
     report = dict(game_profile=game_profile['name'] if game_profile else None,
                   source_sha256=hashlib.sha256(source).hexdigest(), source_bytes=len(source),
                   sfo=sfo((game / 'sce_sys/param.sfo').read_bytes()), entry=hex(header[4]),
@@ -268,7 +268,7 @@ def prepare(game, out):
                   bundled_modules=sorted(p.name for p in (game / 'sce_module').iterdir()),
                   resources=dict(resources), resource_bytes=total_bytes,
                   status='Prepared only; execution and Vulkan are tested separately.')
-    (out / 'analysis.json').write_text(json.dumps(report, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
+    (out / 'analysis.json').write_text(json.dumps(report, ensure_ascii=False, indent=2) + '\n', encoding='utf-8', newline='\n')
     print(f"{report['sfo'].get('TITLE')} | entry={header[4]:#x} | image={size:,} bytes")
     print(f"{len(names)} imported symbols; {sum(counts.values()):,} relocations; {len(report['needed'])} required modules")
     if missing:
