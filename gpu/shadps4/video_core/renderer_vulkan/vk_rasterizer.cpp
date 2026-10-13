@@ -1,7 +1,8 @@
 // SPDX-FileCopyrightText: Copyright 2024-2026 shadPS4 Emulator Project
 // SPDX-License-Identifier: GPL-2.0-or-later
 
-#include <dlfcn.h>
+#include "platform/pf_jmp.h" // refueled: pf_sigjmp_buf, pf_sigsetjmp
+#include "platform/pf_process.h" // refueled: pf_symbolize
 #include <map>
 #include <unordered_set>
 #include <xxhash.h>
@@ -1195,8 +1196,8 @@ void Rasterizer::RunDrawPacket(void* context, const u8* data, u32 size) {
             std::memcpy(flat.data(), snapshot.user_data,
                         std::min(snapshot.user_data_size, snapshot.flat_size) * sizeof(u32));
             // Pointers in the tables may be stale by now: a fault only skips the check.
-            sigjmp_buf recover;
-            if (sigsetjmp(recover, 0)) {
+            pf_sigjmp_buf recover; // refueled: was sigjmp_buf
+            if (pf_sigsetjmp(recover)) { // refueled: was sigsetjmp(recover, 0)
                 runtime_fault_recover = nullptr;
                 continue;
             }
@@ -1329,12 +1330,12 @@ void Rasterizer::PrintPipeStats() {
         std::printf("\n  stage B tasks (us per frame-second, count/s):");
         static std::array<u64, TaskKinds> last_task_cycles{}, last_task_counts{};
         for (std::size_t k = 0; k < TaskKinds && task_kinds[k]; ++k) {
-            Dl_info info{};
-            dladdr(task_kinds[k], &info);
+            PfSymbol info; // refueled: was Dl_info + dladdr
+            pf_symbolize(reinterpret_cast<uintptr_t>(task_kinds[k]), &info);
             char name[32];
             std::snprintf(name, sizeof(name), "+0x%llx",
                           (unsigned long long)(reinterpret_cast<u64>(task_kinds[k]) -
-                                               reinterpret_cast<u64>(info.dli_fbase)));
+                                               u64(info.module_base))); // refueled: was info.dli_fbase
             const u64 c = task_cycles[k], n = task_counts[k];
             std::printf(" [%s %.0f us/s %.0f/s]", name,
                         1e6 * double(c - last_task_cycles[k]) / tsc_hz / seconds,

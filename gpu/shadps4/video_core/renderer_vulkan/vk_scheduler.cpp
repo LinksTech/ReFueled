@@ -9,9 +9,10 @@
 #include <unordered_map>
 #include <cstring>
 #include <string>
-#include <dlfcn.h>
-#include <execinfo.h>
 #include <unistd.h>
+#include "platform/pf_log.h" // refueled: pf_write_stderr_str
+#include "platform/pf_process.h" // refueled: pf_symbolize, pf_backtrace
+#include "platform/pf_thread.h" // refueled: pf_threads_list, pf_thread_id
 #include <functional>
 
 #include "bbport_copy.h"
@@ -37,40 +38,56 @@ std::atomic<u32> producer_reports{0};
 
 /// Names a thread of this process (its comm).
 std::string ThreadName(u32 tid) {
-    char path[64];
-    std::snprintf(path, sizeof(path), "/proc/self/task/%u/comm", tid);
-    std::string name = "?";
-    if (FILE* file = std::fopen(path, "r")) {
-        char buffer[32]{};
-        if (std::fgets(buffer, sizeof(buffer), file)) {
-            name = buffer;
-            if (!name.empty() && name.back() == '\n') {
-                name.pop_back();
+    // refueled: was a read of /proc/self/task/<tid>/comm; pf_threads_list visits every thread
+    struct Lookup {
+        u32 tid;
+        std::string name;
+    } lookup{tid, "?"};
+    pf_threads_list(
+        [](uint64_t thread, const char* comm, void* user) {
+            auto* found = static_cast<Lookup*>(user);
+            if (thread == found->tid) {
+                found->name = comm;
             }
-        }
-        std::fclose(file);
-    }
-    return name;
+        },
+        &lookup);
+    return lookup.name;
 }
 
 void ReportProducer(const char* what, u32 other, const char* other_where, const char* where) {
     if (producer_reports.fetch_add(1, std::memory_order_relaxed) >= 8) {
         return;
     }
-    const u32 self = u32(gettid());
+    const u32 self = u32(pf_thread_id()); // refueled: was gettid()
     std::fprintf(stderr,
                  "Scheduler: %s: thread %u (%s) entering %s while thread %u (%s) is in %s\n",
                  what, self, ThreadName(self).c_str(), where, other, ThreadName(other).c_str(),
                  other_where ? other_where : "?");
     void* frames[24];
-    const int depth = backtrace(frames, 24);
-    backtrace_symbols_fd(frames, depth, 2);
+    // refueled: was backtrace(frames, 24) + backtrace_symbols_fd(frames, depth, 2). frames[0] of
+    // pf_backtrace is its own code, so it is skipped: the first line is this function, as before.
+    const int depth = pf_backtrace(frames, 24);
+    for (int i = 1; i < depth; ++i) {
+        PfSymbol sym;
+        char line[512];
+        const unsigned long long address = reinterpret_cast<uintptr_t>(frames[i]);
+        if (pf_symbolize(address, &sym) != 0) {
+            std::snprintf(line, sizeof(line), "[0x%llx]\n", address);
+        } else if (sym.symbol[0]) {
+            std::snprintf(line, sizeof(line), "%s(%s+0x%llx) [0x%llx]\n", sym.module, sym.symbol,
+                          address - sym.symbol_address, address);
+        } else {
+            std::snprintf(line, sizeof(line), "%s(+0x%llx) [0x%llx]\n", sym.module,
+                          address - sym.module_base, address);
+        }
+        pf_write_stderr_str(line);
+    }
 }
 } // namespace
 
 void Scheduler::ProducerScope::Enter(const char* where) noexcept {
     previous_where = producer_scope_where;
-    static thread_local const u32 tid = u32(gettid());
+    static thread_local const u32 tid = u32(pf_thread_id()); // refueled: was gettid()
     producer_scope_where = where;
     u32 expected = 0;
     if (scheduler.producer_tid.compare_exchange_strong(expected, tid,
@@ -297,13 +314,13 @@ void Scheduler::TracePassBreak(void* caller) {
                 static_cast<unsigned long long>(breaks),
                 std::chrono::duration<double>(now - last).count());
     for (size_t i = 0; i < std::min<size_t>(top.size(), 10); ++i) {
-        Dl_info info{};
-        dladdr(top[i].second, &info);
-        std::printf("Render pass break caller: %llu x %s+0x%lx\n",
+        PfSymbol info; // refueled: was Dl_info + dladdr
+        pf_symbolize(reinterpret_cast<uintptr_t>(top[i].second), &info);
+        std::printf("Render pass break caller: %llu x %s+0x%llx\n",
                     static_cast<unsigned long long>(top[i].first),
-                    info.dli_fname ? info.dli_fname : "?",
-                    static_cast<unsigned long>(reinterpret_cast<uintptr_t>(top[i].second) -
-                                               reinterpret_cast<uintptr_t>(info.dli_fbase)));
+                    info.module[0] ? info.module : "?", // refueled
+                    static_cast<unsigned long long>(reinterpret_cast<uintptr_t>(top[i].second) -
+                                                    info.module_base)); // refueled: LLP64
     }
     callers.clear();
     breaks = 0;
@@ -332,13 +349,13 @@ void Scheduler::TraceDirectRecording(void* caller) {
     }
     std::ranges::sort(top, std::greater{});
     for (size_t i = 0; i < std::min<size_t>(top.size(), 8); ++i) {
-        Dl_info info{};
-        dladdr(top[i].second, &info);
-        std::printf("Recorder sync caller: %llu x %s+0x%lx\n",
+        PfSymbol info; // refueled: was Dl_info + dladdr
+        pf_symbolize(reinterpret_cast<uintptr_t>(top[i].second), &info);
+        std::printf("Recorder sync caller: %llu x %s+0x%llx\n",
                     static_cast<unsigned long long>(top[i].first),
-                    info.dli_fname ? info.dli_fname : "?",
-                    static_cast<unsigned long>(reinterpret_cast<uintptr_t>(top[i].second) -
-                                               reinterpret_cast<uintptr_t>(info.dli_fbase)));
+                    info.module[0] ? info.module : "?", // refueled
+                    static_cast<unsigned long long>(reinterpret_cast<uintptr_t>(top[i].second) -
+                                                    info.module_base)); // refueled: LLP64
     }
     callers.clear();
 }
@@ -526,7 +543,7 @@ void Scheduler::HandOver() {
         inside && (std::strcmp(inside, "Record") == 0 || std::strcmp(inside, "RecordData") == 0 ||
                    std::strcmp(inside, "RecordOrdered") == 0 ||
                    std::strcmp(inside, "RetireChunk") == 0)) {
-        ReportProducer("REENTERED recording", u32(gettid()), inside, "HandOver");
+        ReportProducer("REENTERED recording", u32(pf_thread_id()), inside, "HandOver"); // refueled: was gettid()
     }
     ProducerScope producer{*this, "HandOver"};
     if (!record_chunk || !ordered_chunk) {
