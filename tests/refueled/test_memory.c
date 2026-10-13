@@ -4,7 +4,9 @@
  * (aliasing), replacing and unmapping parts of views at 16 KiB granularity with their contents and
  * page protections kept, guest reservations, zeroing, fault-free reads and concurrent mapping.
  * Platform helpers (protection query, threads) are the only #ifdef code. */
+#ifndef _GNU_SOURCE
 #define _GNU_SOURCE
+#endif
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
@@ -217,7 +219,10 @@ static void test_anywhere(void) {
     CHECK(read_u32(near_image) == 0);
     CHECK(pf_vm_alloc_fixed(near_image, 64 * KIB, PF_PROT_READ | PF_PROT_WRITE) == PF_EEXIST);
     CHECK(pf_vm_free((void *)near_image, 64 * KIB) == 0);
+#ifdef _WIN32
+    /* Two layout regions are two placeholders; Linux keeps no layout and maps across. */
     CHECK(pf_vm_alloc_fixed(USER_MIN - PAGE, 2 * PAGE, PF_PROT_READ) == PF_EINVAL); /* crosses low/user */
+#endif
 }
 
 /* ---- Concurrent mapping: each thread owns a 64 MiB window and its own backing range ---------- */
