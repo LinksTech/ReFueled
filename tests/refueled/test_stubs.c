@@ -25,10 +25,7 @@ int main(void) {
     CHECK(pf_not_implemented("test_stubs_probe") == PF_ENOSYS);
     CHECK(pf_not_implemented("test_stubs_probe") == PF_ENOSYS); /* second call: no second notice */
 
-    CHECK(pf_tls_init() == PF_ENOSYS);
-    CHECK(pf_tls_set_guest_base(NULL) == PF_ENOSYS);
-    CHECK(pf_tls_get_guest_base() == NULL);
-    CHECK(pf_tls_patch_image(NULL, 0) == PF_ENOSYS);
+    /* pf_tls: implemented (K4), tested in test_tls.c. */
 
     CHECK(pf_context_get(NULL, PF_REG_RAX) == 0);
     pf_context_set(NULL, PF_REG_RAX, 0);
@@ -66,7 +63,7 @@ int main(void) {
         CHECK(pf_setjmp_impl(env) == 0);
     }
 
-    CHECK(pf_init() == PF_ENOSYS); /* pf_tls_init is still a stub */
+    CHECK(pf_init() == 0); /* pf_tls_init is real since K4 */
 
     pf_write_stderr_str("test_stubs: pf_write_stderr_str ok\n");
     if (failures) {

@@ -4,7 +4,9 @@
  * (aliasing), replacing and unmapping parts of views at 16 KiB granularity with their contents and
  * page protections kept, guest reservations, zeroing, fault-free reads and concurrent mapping.
  * Platform helpers (protection query, threads) are the only #ifdef code. */
+#ifndef _GNU_SOURCE
 #define _GNU_SOURCE
+#endif
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
