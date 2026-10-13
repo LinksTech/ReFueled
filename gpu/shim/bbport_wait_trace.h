@@ -17,7 +17,9 @@ public:
     ~Scope();
 
 private:
-    void* frames[10];
+    // refueled: named bound; clang rejects std::size(member array) as a constant inside the ctor.
+    static constexpr int MaxFrames = 10;
+    void* frames[MaxFrames];
     int depth = 0;
     std::chrono::steady_clock::time_point start;
 };
