@@ -43,6 +43,15 @@ int pf_fs_remove_tree(const char *path) {
     return pf_errno(callback_errno ? callback_errno : errno);
 }
 
+int pf_fs_stamp(const char *path, int64_t *mtime_ns, uint64_t *size) {
+    struct stat st;
+    if (!path) return PF_EINVAL;
+    if (stat(path, &st) != 0) return errno == ENOENT ? PF_ENOENT : PF_EIO;
+    if (mtime_ns) *mtime_ns = (int64_t)st.st_mtim.tv_sec * 1000000000 + st.st_mtim.tv_nsec;
+    if (size) *size = (uint64_t)st.st_size;
+    return 0;
+}
+
 int pf_fs_rename_replace(const char *from, const char *to) {
     if (!from || !to) return PF_EINVAL;
     return rename(from, to) == 0 ? 0 : pf_errno(errno);

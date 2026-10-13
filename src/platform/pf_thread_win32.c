@@ -174,7 +174,7 @@ int pf_thread_sample(uint64_t tid, void (*sample)(const PfContext *context, void
         memset(&native, 0, sizeof native);
         native.ContextFlags = CONTEXT_FULL;
         if (GetThreadContext(thread, &native)) {
-            PfContext context = {&native};
+            PfContext context = {&native, PF_ACCESS_UNKNOWN};
             sample(&context, user);
         } else {
             result = PF_EIO;

@@ -32,6 +32,11 @@ uint64_t pf_context_get(const PfContext *context, PfReg reg);
 void pf_context_set(PfContext *context, PfReg reg, uint64_t value);
 /* The native structure (ucontext_t* / CONTEXT*), for src/platform only. */
 void *pf_context_native(PfContext *context);
+/* For the context of an access fault: whether the access was a write (PF_ACCESS_WRITE) or a read
+ * (PF_ACCESS_READ; Windows also reports PF_ACCESS_EXEC). Linux: bit 1 of the page-fault error code
+ * (REG_ERR & 2), as shadPS4's Common::IsWriteError reads it; Windows: the exception record.
+ * PF_ACCESS_UNKNOWN for contexts that do not come from an access fault (Windows: samples). */
+int pf_context_fault_access(const PfContext *context);
 
 typedef enum {
     PF_FAULT_ACCESS,      /* SIGSEGV / EXCEPTION_ACCESS_VIOLATION */

@@ -12,6 +12,7 @@ PF_EXTERN_C_BEGIN
 struct _CONTEXT;
 struct PfContext {
     struct _CONTEXT *native;
+    int access; /* PfAccess of the fault (set by the dispatcher), PF_ACCESS_UNKNOWN otherwise */
 };
 
 /* Slot layout of pf_jmp_buf (uint64_t slots[32]) written by pf_setjmp_impl (pf_jmp_win32.S, K6)

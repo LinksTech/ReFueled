@@ -144,3 +144,20 @@ int pf_fs_rename_replace(const char *from, const char *to) {
     free(b);
     return ok ? 0 : pf_error(e);
 }
+
+int pf_fs_stamp(const char *path, int64_t *mtime_ns, uint64_t *size) {
+    if (!path) return PF_EINVAL;
+    int error = 0;
+    wchar_t *wide = to_wide(path, &error);
+    if (!wide) return error;
+    WIN32_FILE_ATTRIBUTE_DATA data;
+    const BOOL ok = GetFileAttributesExW(wide, GetFileExInfoStandard, &data);
+    const DWORD last = ok ? 0 : GetLastError();
+    free(wide);
+    if (!ok) return last == ERROR_FILE_NOT_FOUND || last == ERROR_PATH_NOT_FOUND ? PF_ENOENT : PF_EIO;
+    /* FILETIME: 100 ns since 1601-01-01; 11644473600 s lie between 1601 and 1970. */
+    const int64_t ticks = (int64_t)(((uint64_t)data.ftLastWriteTime.dwHighDateTime << 32) | data.ftLastWriteTime.dwLowDateTime);
+    if (mtime_ns) *mtime_ns = (ticks - INT64_C(116444736000000000)) * 100;
+    if (size) *size = ((uint64_t)data.nFileSizeHigh << 32) | data.nFileSizeLow;
+    return 0;
+}
