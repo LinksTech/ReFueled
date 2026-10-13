@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# DEPRECATED (2026-10-13): replaced by .github/workflows/linux-build.yml; WSL is no longer used.
+# Kept only for reference, do not extend.
 # refueled F8: Linux regression run of one commit, inside WSL.
 #
 #   linux-regress.sh <commit-or-branch> [--ref]

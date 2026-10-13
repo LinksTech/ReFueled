@@ -1,8 +1,11 @@
 #!/bin/sh
-# refueled: interim check until Nix (F8) is there. Builds and runs every platform test on Linux against all pf_*_linux.c + common sources.
+# SPDX-License-Identifier: GPL-2.0-or-later
+# refueled: builds and runs every platform test on Linux against all pf_*_linux.c + common sources.
+# Usage: sh docs/refueled/tools/linux-platform-tests.sh [REPO_DIR]   (default: current directory = repo root)
+# Output goes to <repo>/out/platform-tests/. Exit != 0 if any test fails to build or run.
 set -e
-cd "${1:-/mnt/c/nitro-ps4-port}"
-out="/mnt/c/CTR Reload/tmp/refueled/linux-tests"; mkdir -p "$out"
+cd "${1:-.}"
+out="out/platform-tests"; mkdir -p "$out"
 srcs="src/platform/pf_common.c src/platform/pf_lowheap.c $(ls src/platform/pf_*_linux.c)"
 fail=0
 for t in tests/refueled/test_*.c; do

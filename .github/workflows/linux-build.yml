@@ -1,0 +1,58 @@
+# refueled: Linux regression in GitHub Actions. Replaces the WSL script docs/refueled/tools/linux-regress.sh.
+# PREPARED ONLY: not run yet (there is no GitHub repo for the port). No secrets needed.
+name: linux-build
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [refueled/windows]
+  pull_request:
+    branches: [refueled/windows]
+
+jobs:
+  linux:
+    name: Linux build, tests, platform tests
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      # shell.nix has no nixpkgs pin (`import <nixpkgs>`), so the channel is pinned here via nix_path.
+      # Note: nixos-unstable moves; if a run breaks without a code change, pin a nixpkgs commit instead.
+      - uses: cachix/install-nix-action@v31
+        with:
+          nix_path: nixpkgs=channel:nixos-unstable
+
+      # Optional cache for build outputs (GPU library takes ~40 CPU-minutes). Key on the vendored
+      # sources and shell.nix; remove if it causes stale-build trouble.
+      - uses: actions/cache@v4
+        with:
+          path: out/deps
+          key: linux-out-deps-${{ hashFiles('shell.nix', 'build.sh', 'gpu/**') }}
+
+      # build.sh re-enters nix-shell shell.nix by itself.
+      - name: Build and C tests
+        run: bash build.sh --test
+
+      - name: Python tests
+        run: nix-shell shell.nix --run "python3 -m unittest discover -s tests -p 'test_*.py' -v"
+
+      - name: Platform tests
+        run: nix-shell shell.nix --run "bash docs/refueled/tools/linux-platform-tests.sh"
+
+      # Info only (never fails the job). linux_hits.py needs a shadPS4 checkout at the vendored
+      # commit b4e7ae7 (--ref) to count only bbport's own changes in gpu/shadps4; without it that
+      # directory is skipped. A shallow fetch of exactly that commit keeps this cheap.
+      - name: Linux hits metric (info)
+        continue-on-error: true
+        run: |
+          mkdir -p out/shadps4-ref
+          git -C out/shadps4-ref init -q
+          git -C out/shadps4-ref fetch -q --depth 1 https://github.com/shadps4-emu/shadPS4 b4e7ae776071ceb1dd35004577a8719481e1d258 || true
+          git -C out/shadps4-ref checkout -q FETCH_HEAD || true
+          if [ -d out/shadps4-ref/src ]; then
+            python3 docs/refueled/tools/linux_hits.py --ref out/shadps4-ref
+          else
+            python3 docs/refueled/tools/linux_hits.py
+          fi
