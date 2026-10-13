@@ -75,6 +75,15 @@ mindestens ein Test; `docs/refueled/log/<ID>.md` mit alt↔neu-Tabelle für jede
 | T1 | Bestehende Tests unter Windows (`build-windows.sh --test`: test_runtime, test_sema, test_eventflag, test_pad, test_content, test_file_mods) | `tests/*.c` (nur nötige Minimaländerungen) | F3, R5 | alle grün auf Windows | M | S | blocked |
 | T2 | Skripte unter Windows: prepare/link/patches/game_check in MSYS2-Python, `run-windows.sh` | `run-windows.sh`, `scripts/*.py` (nur Portabilitätsfixes) | F3 | `prepare.py` + `link_modules.py` erzeugen auf Windows dieselben Ausgabedateien wie auf Linux (sha256 gleich) | M | S | in_progress: T2a + T2b done; run-windows.sh folgt mit CLANG64 |
 
+### Nachträge Welle A (2026-10-13)
+| ID | Beschreibung | Besessene Dateien | Abhängig von | Modell | Status |
+|---|---|---|---|---|---|
+| CI | Linux-Regression in GitHub Actions (vorbereitet, nicht aktiv) | `.github/workflows/linux-build.yml`, `docs/refueled/tools/linux-platform-tests.sh` | – | S | done (deferred-ci) |
+| IF-5…IF-9 | Schnittstellen: runtime.h/bbgpu.h auf pf_*, Layout-Init, Zugriffsart, pf_time.h, Zufall/CPU-Zeiten/CPU-Nummer, PfStat | Header + pf_*_linux/win32.c | – | O | done (MSVC-Läufe grün) |
+| R2c | runtime_file.c/runtime_savedata.c ohne Windows-Stub-Wände (PfStat, PF_DIRENT_TYPE) | diese zwei Dateien | IF-9, F6 | S | in_progress |
+| F3b | build-windows.sh baut sacredfire.exe (Runtime, Loader, LibAtrac9, GPU-Lib per CMake, UTF-8-Manifest, Link) | build-windows.sh, WIN32_SOURCES.txt, packaging/windows/* | F3, F5 | S | in_progress (ungetestet bis CLANG64) |
+| T2c | run-windows.sh (Ablauf wie run.sh, Löschschutz für den Spielordner, CRLF-feste ini-Abfragen) | run-windows.sh | T2a | S | in_progress |
+
 ### Später / bei Bedarf
 | ID | Beschreibung | Abhängig von | Umfang | Modell | Status |
 |---|---|---|---|---|---|
@@ -122,8 +131,11 @@ flowchart LR
   CI[CI linux-build.yml]:::ci
 ```
 
-**Kritischer Pfad (rot):** CLANG64 → F3-Abnahme (`build-windows.sh --test`) → K3 (Loader, Opus;
-braucht K2) → T2c (run-windows.sh) → M1 (+ Dump 1.21) → M2 → M3 → M4.
+**Kritischer Pfad (rot):** CLANG64 → F3-Abnahme (`build-windows.sh --test`) → F3b (sacredfire.exe)
+→ K3-Kompilat → T2c (run-windows.sh) → M1 (+ Dump 1.21) → M2 → M3 → M4.
+**Nachtrag 2026-10-13:** M1 verlangt eine Import-Zusammenfassung identisch zur Linux-Referenz; dazu
+muss `bbgpu_resolve` die GPU-Importe auflösen, die Exe also die übersetzte GPU-Bibliothek enthalten.
+**G2/G3 liegen damit schon vor M1 auf dem kritischen Pfad** (nicht erst vor M2).
 **Fast kritisch (gelb):** F5 → G2/G3 (shadPS4-Kopie unter MinGW, größter unbekannter Block; wird
 nach M1 voraussichtlich kritisch, darum sofort nach F3 parallel), danach V*/S*-Kompilat, RZ1/RZ2
 vor M3. Alle Aufrufer-Umstellungen (K2, K5, R1, R2b, R4, R5a, S1–S3, V1–V3) laufen schon jetzt als
