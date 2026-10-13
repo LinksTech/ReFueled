@@ -26,7 +26,7 @@ cflags=(-std=c11 -D_GNU_SOURCE -D_FILE_OFFSET_BITS=64 -O2 -g -gcodeview -Wall -W
 if [[ -f src/platform/pf_posix_gap_win32.h ]]; then
     cflags+=(-include src/platform/pf_posix_gap_win32.h)
 fi
-ldflags=(-fuse-ld=lld -Wl,--disable-high-entropy-va)
+ldflags=(-fuse-ld=lld -Wl,--disable-high-entropy-va -Wl,--disable-dynamicbase)
 
 # ---- Platform layer -> out/win/libpf.a ---------------------------------------------------------
 platform_sources=()
