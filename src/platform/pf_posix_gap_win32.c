@@ -30,6 +30,9 @@
 #undef setenv
 #undef unsetenv
 #undef timegm
+#undef strcasestr
+#undef gmtime_r
+#undef localtime_r
 #undef pthread_condattr_t
 #undef pthread_condattr_init
 #undef pthread_condattr_destroy
@@ -333,6 +336,34 @@ int pf_gap_fseeko(FILE *stream, int64_t offset, int whence) {
 
 int64_t pf_gap_ftello(FILE *stream) {
     return (int64_t)_ftelli64(stream);
+}
+
+/* ---- strcasestr / gmtime_r / localtime_r -------------------------------------------------- */
+
+static int ascii_lower(int c) { return (c >= 'A' && c <= 'Z') ? c + ('a' - 'A') : c; }
+
+char *pf_gap_strcasestr(const char *haystack, const char *needle) {
+    if (!*needle) return (char *)haystack;
+    for (; *haystack; haystack++) {
+        const char *h = haystack, *n = needle;
+        while (*n && *h && ascii_lower((unsigned char)*h) == ascii_lower((unsigned char)*n)) {
+            h++;
+            n++;
+        }
+        if (!*n) return (char *)haystack;
+        if (!*h) return NULL; /* haystack tail shorter than needle */
+    }
+    return NULL;
+}
+
+struct tm *pf_gap_gmtime_r(const time_t *timer, struct tm *result) {
+    __time64_t t = (__time64_t)*timer;
+    return _gmtime64_s(result, &t) == 0 ? result : NULL;
+}
+
+struct tm *pf_gap_localtime_r(const time_t *timer, struct tm *result) {
+    __time64_t t = (__time64_t)*timer;
+    return _localtime64_s(result, &t) == 0 ? result : NULL;
 }
 
 /* ---- fsync -------------------------------------------------------------------------------- */
