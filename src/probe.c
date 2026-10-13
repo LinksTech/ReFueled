@@ -1,5 +1,7 @@
 /* Minimal x86-64 native loader experiment. Not a PS4 emulator or game port. */
+#ifndef _GNU_SOURCE
 #define _GNU_SOURCE
+#endif
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -108,6 +110,8 @@ static ABI void guest_exit(void) { puts("Runtime: process finalizer callback rea
 #define FAULT_FRAMES_SKIPPED 4
 /* Access, bus and illegal-instruction faults, in the order the old signal handler checked them:
  * GPU page tracking, recovery points of speculative reads, then the fatal report. */
+static int crash_detail; /* refueled (DBG) */
+static void crash_detail_report(const PfFault *info, PfContext *context, uintptr_t rip);
 static PfFaultResult fault(const PfFault *info, PfContext *context, void *user) {
     (void)user;
     const int sig = info->host_code;
@@ -147,6 +151,7 @@ static PfFaultResult fault(const PfFault *info, PfContext *context, void *user) 
             pf_write_stderr_str("none\n");
         }
     }
+    if (crash_detail) crash_detail_report(info, context, rip); /* refueled (DBG): BB_CRASH_DETAIL=1 only */
     /* Host call chain (frames with unwind info; guest frames end it). */
     void *frames[32 + FAULT_FRAMES_SKIPPED - 2];
     int depth = pf_backtrace(frames, (int)(sizeof(frames) / sizeof(*frames)));
@@ -161,6 +166,165 @@ static PfFaultResult fault(const PfFault *info, PfContext *context, void *user) 
     }
     /* Linux: 128 + signal number, as before; Windows: the exception code. */
     pf_exit_now(sig > 0 && sig < 64 ? 128 + sig : sig);
+}
+/* refueled (DBG): debug switches, read once in main(). All of them default to off; with none set
+ * nothing below prints or changes anything. */
+static const char *trace_filter;     /* BB_TRACE_IMPORTS: "1" = all imports, else a substring of the name */
+static uint64_t trace_limit = 8;     /* BB_TRACE_IMPORTS_LIMIT: messages per import */
+static uint64_t *trace_counts;       /* per import, calloc'ed when tracing is on */
+/* Where a guest/host address lies, as " image+0x.." and " modN+0x.." (a linked module); "" if neither. */
+static void describe_guest_value(char *out, size_t size, uint64_t value) {
+    out[0] = 0;
+    const uint64_t offset = value - (uint64_t)(uintptr_t)image;
+    if (!image || offset >= 0x10000000) return;
+    size_t used = (size_t)snprintf(out, size, " image+0x%" PRIx64, offset);
+    for (uint64_t m = 0; m < module_count && used < size; ++m)
+        if (offset >= modules[m].base && offset - modules[m].base < modules[m].size)
+            used += (size_t)snprintf(out + used, size - used, " mod%" PRIu64 "+0x%" PRIx64, m, offset - modules[m].base);
+}
+/* BB_CRASH_DETAIL=1: everything a first look at a guest crash needs. Called from fault(), which is
+ * about to end the process; only pf_* functions, snprintf and pf_write_stderr_str, no allocation. */
+static void crash_detail_report(const PfFault *info, PfContext *context, uintptr_t rip) {
+    static const struct { PfReg reg; const char *name; } regs[] = {
+        {PF_REG_RAX, "rax"}, {PF_REG_RBX, "rbx"}, {PF_REG_RCX, "rcx"}, {PF_REG_RDX, "rdx"},
+        {PF_REG_RSI, "rsi"}, {PF_REG_RDI, "rdi"}, {PF_REG_RBP, "rbp"}, {PF_REG_RSP, "rsp"},
+        {PF_REG_R8, "r8"}, {PF_REG_R9, "r9"}, {PF_REG_R10, "r10"}, {PF_REG_R11, "r11"},
+        {PF_REG_R12, "r12"}, {PF_REG_R13, "r13"}, {PF_REG_R14, "r14"}, {PF_REG_R15, "r15"},
+        {PF_REG_RIP, "rip"}, {PF_REG_EFLAGS, "eflags"},
+    };
+    char line[512], note[128], thread[32] = "?";
+    PfSymbol where;
+    pf_write_stderr_str("---- crash detail (BB_CRASH_DETAIL) ----\n");
+    const char *kind = info->kind == PF_FAULT_ACCESS ? "access" : info->kind == PF_FAULT_BUS ? "bus (page error)" :
+                       info->kind == PF_FAULT_ILLEGAL ? "illegal instruction" : "other";
+    const int fault_access = pf_context_fault_access(context);
+    pf_thread_get_name(thread, sizeof(thread));
+    snprintf(line, sizeof(line), "fault: kind=%s access=%s address=0x%016" PRIx64 " thread=%s tid=%" PRIu64 "\n", kind,
+             fault_access == PF_ACCESS_READ ? "read" : fault_access == PF_ACCESS_WRITE ? "write" : fault_access == PF_ACCESS_EXEC ? "execute" : "unknown",
+             (uint64_t)info->address, thread, pf_thread_id());
+    pf_write_stderr_str(line);
+    for (size_t i = 0; i < sizeof(regs) / sizeof(*regs); i += 3) {
+        size_t used = 0;
+        line[0] = 0;
+        for (size_t j = i; j < i + 3 && j < sizeof(regs) / sizeof(*regs); ++j)
+            used += (size_t)snprintf(line + used, sizeof(line) - used, "%s%-6s=%016" PRIx64, j > i ? "  " : "", regs[j].name,
+                                     pf_context_get(context, regs[j].reg));
+        snprintf(line + used, sizeof(line) - used, "\n");
+        pf_write_stderr_str(line);
+    }
+    /* RIP: guest image offset, else host module + offset, else the mapping. */
+    describe_guest_value(note, sizeof(note), rip);
+    if (note[0])
+        snprintf(line, sizeof(line), "rip at%s\n", note);
+    else if (pf_symbolize(rip, &where) == 0)
+        snprintf(line, sizeof(line), "rip at %s+0x%" PRIx64 " (%s)\n", where.module, (uint64_t)(rip - where.module_base),
+                 where.symbol[0] ? where.symbol : "?");
+    else if (pf_describe_mapping(rip, note, sizeof(note) - 1) == 0)
+        snprintf(line, sizeof(line), "rip in mapping: %s\n", note);
+    else
+        snprintf(line, sizeof(line), "rip at %p (no module, no mapping)\n", (void *)rip);
+    pf_write_stderr_str(line);
+    /* 64 qwords from RSP, read without faulting. */
+    uint64_t stack[64];
+    const uintptr_t rsp = (uintptr_t)pf_context_get(context, PF_REG_RSP);
+    const int64_t got = pf_read_memory_safe(stack, rsp, sizeof(stack));
+    const size_t words = got > 0 ? (size_t)got / 8 : 0;
+    snprintf(line, sizeof(line), "stack from rsp=0x%016" PRIx64 " (%zu of 64 qwords readable):\n", (uint64_t)rsp, words);
+    pf_write_stderr_str(line);
+    for (size_t i = 0; i < words; ++i) {
+        describe_guest_value(note, sizeof(note), stack[i]);
+        snprintf(line, sizeof(line), "  [rsp+0x%03zx] %016" PRIx64 "%s\n", i * 8, stack[i], note);
+        pf_write_stderr_str(line);
+    }
+    /* rbp chain as in dump_frames(). */
+    uintptr_t frame_rip = rip, rbp = (uintptr_t)pf_context_get(context, PF_REG_RBP);
+    pf_write_stderr_str("rbp chain:\n");
+    for (int depth = 0; depth < 24; ++depth) {
+        describe_guest_value(note, sizeof(note), frame_rip);
+        snprintf(line, sizeof(line), "  #%d rip=%016" PRIx64 "%s\n", depth, (uint64_t)frame_rip, note);
+        pf_write_stderr_str(line);
+        uintptr_t frame[2];
+        if (!rbp || pf_read_memory_safe(frame, rbp, sizeof(frame)) != (int64_t)sizeof(frame)) break;
+        if (frame[0] <= rbp) break;
+        rbp = frame[0]; frame_rip = frame[1];
+    }
+    pf_write_stderr_str("---- end of crash detail ----\n");
+}
+/* BB_TRACE_IMPORTS: the thunk (below) calls this with the import index, the guest return address and
+ * the saved argument registers (saved[0..2] = rdi, rsi, rdx), then jumps to the real target. */
+static ABI void trace_import(uint64_t index, uint64_t return_address, const uint64_t *saved) {
+    if (index >= import_count || !trace_counts) return;
+    const uint64_t n = __atomic_fetch_add(&trace_counts[index], 1, __ATOMIC_RELAXED);
+    if (n > trace_limit) return;
+    char line[384];
+    if (n == trace_limit)
+        snprintf(line, sizeof(line), "TRACE_IMPORT %s: limit of %" PRIu64 " messages reached, no more for this import\n", names[index], trace_limit);
+    else
+        snprintf(line, sizeof(line), "TRACE_IMPORT tid=%" PRIu64 " %s #%" PRIu64 " caller=image+0x%" PRIx64 " rdi=0x%" PRIx64 " rsi=0x%" PRIx64 " rdx=0x%" PRIx64 "\n",
+                 pf_thread_id(), names[index], n + 1, return_address - (uint64_t)(uintptr_t)image, saved[0], saved[1], saved[2]);
+    pf_write_stderr_str(line);
+}
+/* Thunk template (generated and verified by gen_thunk.py / check_thunk.py in C:\CTR Reload\tmp\refueled\DBG).
+ * It skips the red zone, saves rdi rsi rdx rcx r8 r9 rax r10 r11 and xmm0-7 on the stack (16-byte
+ * aligned), calls trace_import(index, return address, saved block) and restores everything, then
+ * jumps (not calls) to the target, so the callee sees the caller's stack and return address. */
+#define THUNK_SIZE 320
+#define THUNK_OFF_INDEX 128
+#define THUNK_OFF_TRACE 144
+#define THUNK_OFF_TARGET 280
+static const unsigned char thunk_template[288] = {
+    0x48, 0x8d, 0xa4, 0x24, 0x80, 0xff, 0xff, 0xff,  /* lea rsp,[rsp-128]   skip the red zone */
+    0x55,  /* push rbp */
+    0x48, 0x89, 0xe5,  /* mov rbp,rsp */
+    0x48, 0x81, 0xec, 0xd0, 0x00, 0x00, 0x00,  /* sub rsp,0xd0 */
+    0x48, 0x89, 0x3c, 0x24,  /* mov [rsp+0],rdi */
+    0x48, 0x89, 0x74, 0x24, 0x08,  /* mov [rsp+8],rsi */
+    0x48, 0x89, 0x54, 0x24, 0x10,  /* mov [rsp+16],rdx */
+    0x48, 0x89, 0x4c, 0x24, 0x18,  /* mov [rsp+24],rcx */
+    0x4c, 0x89, 0x44, 0x24, 0x20,  /* mov [rsp+32],r8 */
+    0x4c, 0x89, 0x4c, 0x24, 0x28,  /* mov [rsp+40],r9 */
+    0x48, 0x89, 0x44, 0x24, 0x30,  /* mov [rsp+48],rax */
+    0x4c, 0x89, 0x54, 0x24, 0x38,  /* mov [rsp+56],r10 */
+    0x4c, 0x89, 0x5c, 0x24, 0x40,  /* mov [rsp+64],r11 */
+    0x0f, 0x11, 0x84, 0x24, 0x50, 0x00, 0x00, 0x00,  /* movups [rsp+80],xmm0 */
+    0x0f, 0x11, 0x8c, 0x24, 0x60, 0x00, 0x00, 0x00,  /* movups [rsp+96],xmm1 */
+    0x0f, 0x11, 0x94, 0x24, 0x70, 0x00, 0x00, 0x00,  /* movups [rsp+112],xmm2 */
+    0x0f, 0x11, 0x9c, 0x24, 0x80, 0x00, 0x00, 0x00,  /* movups [rsp+128],xmm3 */
+    0x0f, 0x11, 0xa4, 0x24, 0x90, 0x00, 0x00, 0x00,  /* movups [rsp+144],xmm4 */
+    0x0f, 0x11, 0xac, 0x24, 0xa0, 0x00, 0x00, 0x00,  /* movups [rsp+160],xmm5 */
+    0x0f, 0x11, 0xb4, 0x24, 0xb0, 0x00, 0x00, 0x00,  /* movups [rsp+176],xmm6 */
+    0x0f, 0x11, 0xbc, 0x24, 0xc0, 0x00, 0x00, 0x00,  /* movups [rsp+192],xmm7 */
+    0xbf, 0x00, 0x00, 0x00, 0x00,  /* mov edi,INDEX */
+    0x48, 0x8b, 0xb5, 0x88, 0x00, 0x00, 0x00,  /* mov rsi,[rbp+0x88]   return address */
+    0x48, 0x89, 0xe2,  /* mov rdx,rsp   save block */
+    0x48, 0xb8, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  /* movabs rax,TRACE */
+    0xff, 0xd0,  /* call rax */
+    0x0f, 0x10, 0x84, 0x24, 0x50, 0x00, 0x00, 0x00,  /* movups xmm0,[rsp+80] */
+    0x0f, 0x10, 0x8c, 0x24, 0x60, 0x00, 0x00, 0x00,  /* movups xmm1,[rsp+96] */
+    0x0f, 0x10, 0x94, 0x24, 0x70, 0x00, 0x00, 0x00,  /* movups xmm2,[rsp+112] */
+    0x0f, 0x10, 0x9c, 0x24, 0x80, 0x00, 0x00, 0x00,  /* movups xmm3,[rsp+128] */
+    0x0f, 0x10, 0xa4, 0x24, 0x90, 0x00, 0x00, 0x00,  /* movups xmm4,[rsp+144] */
+    0x0f, 0x10, 0xac, 0x24, 0xa0, 0x00, 0x00, 0x00,  /* movups xmm5,[rsp+160] */
+    0x0f, 0x10, 0xb4, 0x24, 0xb0, 0x00, 0x00, 0x00,  /* movups xmm6,[rsp+176] */
+    0x0f, 0x10, 0xbc, 0x24, 0xc0, 0x00, 0x00, 0x00,  /* movups xmm7,[rsp+192] */
+    0x48, 0x8b, 0x3c, 0x24,  /* mov rdi,[rsp+0] */
+    0x48, 0x8b, 0x74, 0x24, 0x08,  /* mov rsi,[rsp+8] */
+    0x48, 0x8b, 0x54, 0x24, 0x10,  /* mov rdx,[rsp+16] */
+    0x48, 0x8b, 0x4c, 0x24, 0x18,  /* mov rcx,[rsp+24] */
+    0x4c, 0x8b, 0x44, 0x24, 0x20,  /* mov r8,[rsp+32] */
+    0x4c, 0x8b, 0x4c, 0x24, 0x28,  /* mov r9,[rsp+40] */
+    0x48, 0x8b, 0x44, 0x24, 0x30,  /* mov rax,[rsp+48] */
+    0x4c, 0x8b, 0x54, 0x24, 0x38,  /* mov r10,[rsp+56] */
+    0x4c, 0x8b, 0x5c, 0x24, 0x40,  /* mov r11,[rsp+64] */
+    0x48, 0x89, 0xec,  /* mov rsp,rbp */
+    0x5d,  /* pop rbp */
+    0x48, 0x8d, 0xa4, 0x24, 0x80, 0x00, 0x00, 0x00,  /* lea rsp,[rsp+128] */
+    0xff, 0x25, 0x00, 0x00, 0x00, 0x00,  /* jmp [rip+0] */
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  /* TARGET */
+};
+/* Does BB_TRACE_IMPORTS select this import? */
+static int trace_wants(const char *name) {
+    return trace_filter && (!strcmp(trace_filter, "1") || strstr(name, trace_filter));
 }
 /* Watchdog: dump RIP and the rbp frame chain of every thread (guest offsets
  * when inside the image). Reads use pf_read_memory_safe so bad frames cannot fault. */
@@ -288,6 +452,12 @@ int main(int argc, char **argv) {
     if (runtime_memory_init_layout()) fail("cannot reserve the guest address layout");
     if (argc == 2 && !strcmp(argv[1], "--vulkan-only")) return vulkan_smoke();
     check_cpu();
+    {   /* refueled (DBG): debug switches, default off */
+        const char *detail = getenv("BB_CRASH_DETAIL"), *trace = getenv("BB_TRACE_IMPORTS"), *limit = getenv("BB_TRACE_IMPORTS_LIMIT");
+        crash_detail = detail && !strcmp(detail, "1");
+        if (trace && trace[0]) trace_filter = trace;
+        if (limit && strtoull(limit, NULL, 10) > 0) trace_limit = strtoull(limit, NULL, 10);
+    }
     int cpu_only = 0, strict_imports = 0, list_imports = 0;
     unsigned timeout_seconds = 10;
     const char *content_profile=NULL, *app0=NULL, *user_dir=NULL, *patch_file=NULL, *import_names=NULL;
@@ -477,6 +647,14 @@ int main(int argc, char **argv) {
     /* SacredFire (--list-imports): how each import was bound: 1 runtime, 2 native module, 3 trap. */
     unsigned char *outcome = calloc(import_count ? import_count : 1, 1);
     if (!outcome) fail("allocation failed");
+    /* refueled (DBG): BB_TRACE_IMPORTS binds the selected function imports to a thunk (see trace_import). */
+    unsigned char *thunks = NULL, *thunk_built = NULL;
+    if (trace_filter && !list_imports) {
+        thunks = allocate(round_page((import_count + 1) * THUNK_SIZE));
+        thunk_built = calloc(import_count ? import_count : 1, 1);
+        trace_counts = calloc(import_count ? import_count : 1, sizeof(*trace_counts));
+        if (!thunk_built || !trace_counts) fail("allocation failed");
+    }
     for (uint64_t i = 0; i < nr; ++i) {
         uintptr_t value = relocs[i].kind == 2 ? (uintptr_t)(data_traps + page_size * relocs[i].value + relocs[i].addend)
                         : relocs[i].kind == 1 ? (uintptr_t)(traps + 32 * relocs[i].value)
@@ -490,6 +668,20 @@ int main(int argc, char **argv) {
                 value=(uintptr_t)image+address+relocs[i].addend;
                 outcome[relocs[i].value] = 2;
             } else outcome[relocs[i].value] = 3;
+        }
+        /* One thunk per import, shared by its relocations: only addend 0 (a call target). */
+        if (thunks && relocs[i].kind == 1 && relocs[i].addend == 0 && trace_wants(names[relocs[i].value])) {
+            unsigned char *t = thunks + THUNK_SIZE * relocs[i].value;
+            if (!thunk_built[relocs[i].value]) {
+                const uint32_t index = (uint32_t)relocs[i].value;
+                const uintptr_t trace = (uintptr_t)trace_import, target = value;
+                memcpy(t, thunk_template, sizeof(thunk_template));
+                memcpy(t + THUNK_OFF_INDEX, &index, 4);
+                memcpy(t + THUNK_OFF_TRACE, &trace, 8);
+                memcpy(t + THUNK_OFF_TARGET, &target, 8);
+                thunk_built[relocs[i].value] = 1;
+            }
+            value = (uintptr_t)t;
         }
         memcpy(image + relocs[i].target, &value, 8);
     }
@@ -516,6 +708,7 @@ int main(int argc, char **argv) {
         if (pf_tls_patch_image(code, code_count) < 0) fail("cannot adapt the guest thread-pointer loads");
     }
     protect(traps, round_page((import_count + 1) * 32), 5);
+    if (thunks) protect(thunks, round_page((import_count + 1) * THUNK_SIZE), 5);
     protect(image, round_page(size), 0);
     int executable_entry = 0;
     for (uint64_t i = 0; i < ns; ++i) {

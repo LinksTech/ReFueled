@@ -235,6 +235,8 @@ if [[ $dry == 1 ]]; then
     printf '+ exec'; printf ' %q' "$probe" "${probe_args[@]}"; printf '\n'
     exit 0
 fi
+# refueled (DBG): fatal faults print registers, stack and rbp chain (docs/refueled/DEBUG-M2.md); BB_CRASH_DETAIL=0 turns it off.
+export BB_CRASH_DETAIL="${BB_CRASH_DETAIL:-1}"
 # refueled: the in-game settings menu restarts the game through this script (patches for a new
 # render resolution are generated here); sacredfire.exe starts BB_RESTART_COMMAND
 # (pf_restart_through_launcher) instead of only its own command line.
