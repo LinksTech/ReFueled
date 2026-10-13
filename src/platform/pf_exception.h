@@ -66,7 +66,7 @@ int pf_fault_add_handler(unsigned kinds, PfFaultHandler handler, void *user);
 PfFaultResult pf_fault_resume_at(PfContext *context, pf_sigjmp_buf env, int value);
 
 /* Ends the process now, without destructors or atexit handlers (_exit). Safe in handlers. */
-__attribute__((noreturn)) void pf_exit_now(int status);
+PF_NORETURN void pf_exit_now(int status);
 
 /* ---- Watchdog ---------------------------------------------------------------------------- */
 

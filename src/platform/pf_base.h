@@ -26,6 +26,18 @@
 #define PF_EXTERN_C_END
 #endif
 
+/* Attributes. The product compilers are gcc/clang (Linux, MSYS2 CLANG64); the MSVC spellings only
+ * let the Win32-only platform files be checked with the Visual Studio tools as well. */
+#if defined(_MSC_VER) && !defined(__clang__)
+#define PF_NORETURN __declspec(noreturn)
+#define PF_RETURNS_TWICE
+#define PF_ALIGNED16 __declspec(align(16))
+#else
+#define PF_NORETURN __attribute__((noreturn))
+#define PF_RETURNS_TWICE __attribute__((returns_twice))
+#define PF_ALIGNED16 __attribute__((aligned(16)))
+#endif
+
 PF_EXTERN_C_BEGIN
 
 /* Error codes: platform-neutral, negative, errno-like values (not the host's errno). */

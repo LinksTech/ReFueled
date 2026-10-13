@@ -20,10 +20,10 @@
 #if defined(_WIN32)
 PF_EXTERN_C_BEGIN
 /* rbx rbp rdi rsi rsp r12-r15 rip, mxcsr/fpucw, xmm6-xmm15 (Windows x64 non-volatile set). */
-typedef struct { uint64_t slots[32]; } __attribute__((aligned(16))) pf_jmp_buf[1];
+typedef struct PF_ALIGNED16 { uint64_t slots[32]; } pf_jmp_buf[1];
 typedef pf_jmp_buf pf_sigjmp_buf;
-int pf_setjmp_impl(pf_jmp_buf env) __attribute__((returns_twice));
-__attribute__((noreturn)) void pf_longjmp_impl(pf_jmp_buf env, int value);
+PF_RETURNS_TWICE int pf_setjmp_impl(pf_jmp_buf env);
+PF_NORETURN void pf_longjmp_impl(pf_jmp_buf env, int value);
 PF_EXTERN_C_END
 #define pf_setjmp(env) pf_setjmp_impl(env)
 #define pf_longjmp(env, value) pf_longjmp_impl(env, value)
