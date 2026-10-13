@@ -11,7 +11,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#ifndef _WIN32
 #include <pthread.h>
 #include <time.h>
 #include <arpa/inet.h>
@@ -641,6 +640,3 @@ static const RuntimeExport exports[]={
     {"sceVoiceInit",ok_void}, {"sceVoiceEnd",ok_void},
 };
 uintptr_t runtime_services_resolve(const char *name) { return RUNTIME_LOOKUP(exports,name); }
-#else
-uintptr_t runtime_services_resolve(const char *name) { (void)name; return 0; }
-#endif

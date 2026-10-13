@@ -8,7 +8,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#ifndef _WIN32
 #include <pthread.h>
 #include <errno.h>
 #include <time.h>
@@ -181,7 +180,3 @@ uintptr_t runtime_eventflag_resolve(const char *name) { return RUNTIME_LOOKUP(ex
 void runtime_eventflag_report(void) {
     printf("Runtime: event flags created=%zu, deleted=%zu, waits=%zu, sets=%zu, timeouts=%zu\n",created,deleted,waits,sets,timeouts);
 }
-#else
-uintptr_t runtime_eventflag_resolve(const char *name) { (void)name; return 0; }
-void runtime_eventflag_report(void) {}
-#endif

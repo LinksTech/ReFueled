@@ -48,7 +48,11 @@ cflags=(-std=c11 -D_GNU_SOURCE= -D_FILE_OFFSET_BITS=64 -O2 -g -gcodeview -Wall -
 if [[ -f src/platform/pf_posix_gap_win32.h ]]; then
     cflags+=(-include src/platform/pf_posix_gap_win32.h)
 fi
-ldflags=(-fuse-ld=lld -Wl,--disable-high-entropy-va -Wl,--disable-dynamicbase)
+# POSIX headers MinGW lacks, as thin Windows stand-ins (arpa/inet.h -> Winsock).
+cflags+=(-Isrc/platform/win32_include)
+# -u pf_win32_quiet_crt: pulls pf_base_win32.o from libpf.a into every program, so its constructor
+# switches off modal assert/abort/crash dialogs (they would block unattended runs).
+ldflags=(-fuse-ld=lld -Wl,--disable-high-entropy-va -Wl,--disable-dynamicbase -Wl,-u,pf_win32_quiet_crt)
 
 # --keep-going: one log per failed unit in out/win/census/ (unit=<path with / as __>.log).
 census=$out/census

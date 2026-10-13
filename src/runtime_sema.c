@@ -5,7 +5,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#ifndef _WIN32
 #include <pthread.h>
 #include <errno.h>
 #include <time.h>
@@ -178,8 +177,3 @@ void runtime_sema_report(void) {
            created,deleted,acquired,signaled,timed_out);
     pthread_mutex_unlock(&lock);
 }
-#else
-uintptr_t runtime_sema_resolve(const char *name) { (void)name; return 0; }
-void runtime_sema_report(void) { puts("Runtime: Windows semaphore backend not implemented"); }
-unsigned runtime_sema_waiters(uint32_t id) { (void)id; return 0; }
-#endif
