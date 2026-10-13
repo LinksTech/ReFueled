@@ -12,6 +12,7 @@
 #include "common/logging/log.h"
 #include "common/path_util.h"
 #include "common/signal_context.h"
+#include "platform/pf_exception.h" // refueled:
 #include "core/emulator_settings.h"
 #include "core/signals.h"
 #include "shader_recompiler/info.h"
@@ -72,7 +73,9 @@ static bool SrtWalkerSignalHandler(void* context, void* fault_address) {
     // Only handle if the fault address is within the SRT code range
     const u8* code_start = g_srt_codegen_start;
     const u8* code_end = code_start + g_srt_codegen.getSize();
-    const void* code = Common::GetRip(context);
+    // refueled: the dispatcher (gpu/shim/bbgpu.cpp) passes a PfContext, not the OS context.
+    const void* code = reinterpret_cast<const void*>(
+        pf_context_get(static_cast<const PfContext*>(context), PF_REG_RIP)); // refueled:
     if (code < code_start || code >= code_end) {
         return false; // Not in SRT code range
     }
