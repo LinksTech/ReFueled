@@ -195,6 +195,7 @@ static void *tls_other_thread(void *argument) {
 }
 
 int main(void) {
+    CHECK(pf_tls_init() == 0); /* pf_init does this in the loader; Windows needs the slot first */
     /* Thread on its own 1 MiB stack, frame above 64 KiB. */
     {
         size_t size = 1024 * 1024;
@@ -294,8 +295,12 @@ int main(void) {
         volatile uint64_t sink = 0;
         CHECK(pf_cpu_count_allowed() >= 1);
         CHECK(pf_thread_cpu_time_ns(&before) == 0);
-        for (uint64_t i = 0; i < 50000000u; i++) sink += i;
-        CHECK(pf_thread_cpu_time_ns(&after) == 0);
+        /* Windows counts thread time in scheduler ticks (~15.6 ms): spin until it moves, at most
+         * about 2 s of work. */
+        for (int round = 0; round < 40 && after <= before; ++round) {
+            for (uint64_t i = 0; i < 50000000u; i++) sink += i;
+            CHECK(pf_thread_cpu_time_ns(&after) == 0);
+        }
         CHECK(after > before);
     }
 
