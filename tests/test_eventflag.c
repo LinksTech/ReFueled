@@ -8,6 +8,17 @@
 #include <string.h>
 #include <unistd.h>
 
+#ifdef _WIN32
+#include <io.h>
+/* refueled: native Windows has no /tmp; use TMP/TEMP (mkstemp is provided by MinGW). */
+static void test_tmp_path(char *out, size_t cap, const char *name) {
+    const char *dir=getenv("TMP"); if(!dir||!*dir) dir=getenv("TEMP"); if(!dir||!*dir) dir=".";
+    snprintf(out,cap,"%s/%sXXXXXX",dir,name);
+}
+#else
+static void test_tmp_path(char *out, size_t cap, const char *name) { snprintf(out,cap,"/tmp/%sXXXXXX",name); }
+#endif
+
 void runtime_restart(void) { abort(); }
 
 typedef int32_t (ABI *Create)(uint32_t *, const char *, uint32_t, uint64_t, const void *);
@@ -23,9 +34,14 @@ static uint32_t shared;
 static void *setter(void *arg) { usleep(20000); assert(set(shared,(uint64_t)(uintptr_t)arg)==0); return NULL; }
 
 int main(void) {
+#ifdef _WIN32
+    /* refueled: as the loader does, before the runtime touches guest memory. */
+    assert(pf_init()==0);
+    assert(runtime_memory_init_layout()==0);
+#endif
     runtime_start(1);
     /* The NID table the loader would pass with --import-names, written here so the test stands alone. */
-    char path[]="/tmp/sacredfire-eventflag-XXXXXX";
+    char path[512]; test_tmp_path(path,sizeof path,"sacredfire-eventflag-");
     int fd=mkstemp(path); assert(fd>=0);
     const char *table="BpFoboUJoZU libkernel sceKernelCreateEventFlag\n8mql9OcQnd4 libkernel sceKernelDeleteEventFlag\nIOnSvHzqu6A libkernel sceKernelSetEventFlag\n7uhBFWRAS60 libkernel sceKernelClearEventFlag\nJTvBflhYazQ libkernel sceKernelWaitEventFlag\n9lvj5DjHZiA libkernel sceKernelPollEventFlag\nPZku4ZrXJqg libkernel sceKernelCancelEventFlag\n";
     assert(write(fd,table,strlen(table))==(ssize_t)strlen(table)); close(fd);
