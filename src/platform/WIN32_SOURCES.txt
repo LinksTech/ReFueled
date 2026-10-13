@@ -1,0 +1,3 @@
+# refueled: common sources (src/, gpu/shim) that build-windows.sh compiles into the Windows
+# binary, one path per line relative to the repository root. Blank lines and lines starting
+# with '#' are ignored. Entries are added package by package (R*, G*, S*, V*).
