@@ -3,6 +3,7 @@
  * and the host time zone supplies local time. */
 #define _GNU_SOURCE
 #include "runtime.h"
+#include "platform/pf_time.h"
 #include <stdio.h>
 #include <string.h>
 #include <time.h>
@@ -68,10 +69,8 @@ static uint64_t now_utc(void) {
 }
 /* Offset of local time from UTC at the given UTC tick, in microseconds. */
 static int64_t local_offset(uint64_t utc) {
-    time_t seconds=(time_t)((int64_t)(utc-UNIX_EPOCH_TICKS)/1000000);
-    struct tm local;
-    localtime_r(&seconds,&local);
-    return (int64_t)local.tm_gmtoff*1000000;
+    const int64_t seconds=(int64_t)(utc-UNIX_EPOCH_TICKS)/1000000;
+    return pf_utc_offset_seconds(seconds,NULL)*1000000;
 }
 
 static ABI int32_t rtc_current_local(DateTime *t) {
