@@ -181,8 +181,10 @@ echo "Game profile: $BB_GAME_PROFILE"
 run "$PYTHON" scripts/prepare.py "$game_w" --out "$out_w"
 run "$PYTHON" scripts/link_libc.py "$game_w" --out "$out_w"
 run "$PYTHON" scripts/link_modules.py "$game_w" --out "$out_w" --modules libc.prx libSceFios2.prx libSceNpToolkit2.prx
-# Symbol names for this eboot's host-side imports (aerolib list, fetched once into out/aerolib.inl).
-run "$PYTHON" tools/gen_import_names.py --out "$out_w"
+# Symbol names for this eboot's host-side imports. refueled: from the local copy of shadPS4's
+# aerolib.inl (third_party/shadps4-aerolib, shadPS4 commit b4e7ae7, GPL-2.0-or-later) instead of a
+# download; run.sh keeps fetching it into out/aerolib.inl.
+run "$PYTHON" tools/gen_import_names.py --out "$out_w" --aerolib "$(winp "$PWD/third_party/shadps4-aerolib/aerolib.inl")"
 run "$PYTHON" scripts/content_profile.py "$game_w" --out "$out_w" --sku "${BB_CONTENT_SKU:-full}"
 fps=${BB_FPS:-30}
 run "$PYTHON" scripts/patches.py --patches-dir "$(winp "$(realpath -m -- "${BB_PATCHES_DIR:-patches}")")" \

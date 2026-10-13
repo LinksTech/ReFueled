@@ -127,7 +127,7 @@ mods/<Mod-ID>/
 1. Plugins überhaupt (Stufe 3 + native API) oder zunächst nur Assets + Byte-Patches + Import-Hooks?
 2. Archiv-Einträge ersetzen (Format der CTR-Archive) – wie wichtig für die ersten Mods?
 3. Soll der Launcher Mods verwalten (wie bbport), oder reicht anfangs `mods.json` + Startbericht?
-4. Linux: Overlay auch dort als Standard (dann ist `mods.py` überflüssig) – das wäre eine
+4. **Entschieden 2026-10-13: zurückgestellt bis nach M4; Linux behält bis dahin den Link-Baum.** Linux: Overlay auch dort als Standard (dann ist `mods.py` überflüssig) – das wäre eine
    Linux-Verhaltensänderung und braucht eine Entscheidung nach der D21-Regel.
 
 ## 9. Mögliche Pakete (nach M4)
