@@ -5,6 +5,8 @@
 #ifndef _GNU_SOURCE
 #define _GNU_SOURCE /* before the first system header, as in the runtime sources */
 #endif
+#include <sys/resource.h>
+#include <sys/random.h>
 #include <dirent.h>
 #include <dlfcn.h>
 #include <errno.h>
@@ -194,4 +196,27 @@ int pf_restart_through_launcher(void) {
     syscall(SYS_close_range, 3u, ~0u, 0u);
     execlp("bash", "bash", "run.sh", (char *)NULL);
     return PF_EIO;
+}
+
+/* runtime_kernel.c: getrandom loop of sceKernelGetRandomNumber (EINTR and short reads repeated). */
+int pf_random_bytes(void *buffer, size_t size) {
+    size_t done = 0;
+    while (done < size) {
+        ssize_t n = getrandom((char *)buffer + done, size - done, 0);
+        if (n < 0) {
+            if (errno == EINTR) continue;
+            return PF_EIO;
+        }
+        done += (size_t)n;
+    }
+    return 0;
+}
+
+/* runtime_kernel.c guest_getrusage: getrusage(RUSAGE_SELF / RUSAGE_THREAD). */
+int pf_cpu_times(int thread, uint64_t *user_ns, uint64_t *system_ns) {
+    struct rusage r;
+    if (getrusage(thread ? RUSAGE_THREAD : RUSAGE_SELF, &r)) return PF_EIO;
+    if (user_ns) *user_ns = (uint64_t)r.ru_utime.tv_sec * 1000000000u + (uint64_t)r.ru_utime.tv_usec * 1000u;
+    if (system_ns) *system_ns = (uint64_t)r.ru_stime.tv_sec * 1000000000u + (uint64_t)r.ru_stime.tv_usec * 1000u;
+    return 0;
 }

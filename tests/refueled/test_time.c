@@ -7,6 +7,7 @@
 #include <string.h>
 #include <time.h>
 #include "platform/pf_fs.h"
+#include "platform/pf_process.h"
 #include "platform/pf_time.h"
 
 #ifdef _WIN32
@@ -81,6 +82,19 @@ int main(void) {
     CHECK(pf_fs_stamp(path, (int64_t *)&m2, (uint64_t *)&s2) == 0 && s2 == 6 && m2 > m1);
     CHECK(pf_fs_stamp("pf_test_time_missing.tmp", NULL, NULL) == PF_ENOENT);
     remove(path);
+
+    /* IF-8: random bytes, CPU times, current CPU (pf_thread.h needs pthread.h, so only the process
+     * functions are checked here; pf_current_cpu is checked in test_thread). */
+    unsigned char a[64], b[64];
+    memset(a, 0, sizeof a);
+    memset(b, 0, sizeof b);
+    CHECK(pf_random_bytes(a, sizeof a) == 0 && pf_random_bytes(b, sizeof b) == 0 && memcmp(a, b, sizeof a) != 0);
+    unsigned long long u0 = 0, k0 = 0, u1 = 0, k1 = 0;
+    CHECK(pf_cpu_times(1, (uint64_t *)&u0, (uint64_t *)&k0) == 0);
+    volatile unsigned long long sink = 0;
+    for (unsigned long long i = 0; i < 200000000ull; ++i) sink += i;
+    CHECK(pf_cpu_times(1, (uint64_t *)&u1, (uint64_t *)&k1) == 0 && u1 + k1 > u0 + k0);
+    CHECK(pf_cpu_times(0, (uint64_t *)&u1, NULL) == 0 && u1 > 0);
 
     if (failures) {
         fprintf(stderr, "test_time: %d of %d checks failed\n", failures, checks);

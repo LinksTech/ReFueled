@@ -46,5 +46,14 @@ int pf_gpu_memory_in_use(uint64_t *bytes);
  * handles and exits. Returns only on failure (PF_E*). */
 int pf_restart_through_launcher(void);
 
+/* Fills buffer with `size` cryptographically random bytes (getrandom(…, 0), repeated after EINTR
+ * and short reads, as runtime_kernel.c did / BCryptGenRandom). 0 or PF_EIO. */
+int pf_random_bytes(void *buffer, size_t size);
+
+/* User and system CPU time in nanoseconds of the whole process (thread == 0) or of the calling
+ * thread (thread != 0): getrusage(RUSAGE_SELF / RUSAGE_THREAD) / GetProcessTimes /
+ * GetThreadTimes. Either pointer may be NULL. 0 or PF_EIO. */
+int pf_cpu_times(int thread, uint64_t *user_ns, uint64_t *system_ns);
+
 PF_EXTERN_C_END
 #endif
