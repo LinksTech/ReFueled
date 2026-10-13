@@ -1,6 +1,11 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #include "bbport_free_check.h"
 
+#include "platform/pf_exception.h"
+#include "platform/pf_log.h"
+#include "platform/pf_memory.h"
+#include "platform/pf_thread.h"
+
 #include <algorithm>
 #include <array>
 #include <atomic>
@@ -12,14 +17,7 @@
 #include <mutex>
 #include <thread>
 #include <unordered_map>
-#include <pthread.h>
-#include <sys/mman.h>
-#include <sys/syscall.h>
-#include <csignal>
-#include <ucontext.h>
 #include <unordered_set>
-#include <sys/uio.h>
-#include <unistd.h>
 
 namespace BbFreeCheck {
 namespace {
@@ -113,7 +111,7 @@ u64 NowNs() {
 }
 
 u32 Tid() {
-    static thread_local const u32 tid = u32(gettid());
+    static thread_local const u32 tid = u32(pf_thread_id());
     return tid;
 }
 
@@ -270,9 +268,7 @@ void PrintBlock(const unsigned char* bytes, u64 page, u64 block) {
 }
 
 bool ReadPage(u64 page, unsigned char* out) {
-    iovec local{out, PageSize};
-    iovec remote{reinterpret_cast<void*>(page), PageSize};
-    return process_vm_readv(getpid(), &local, 1, &remote, 1, 0) == ssize_t(PageSize);
+    return pf_read_memory_safe(out, page, PageSize) == std::int64_t(PageSize);
 }
 
 /// What the watcher saw of a page's blocks: when each was last seen taken and released by the
@@ -284,7 +280,7 @@ struct Track {
 };
 
 void Watcher() {
-    pthread_setname_np(pthread_self(), "bbFreeCheck");
+    pf_thread_set_name("bbFreeCheck");
     std::array<u64, 256> reported{};
     u32 reported_next = 0;
     std::unordered_map<u64, Track> tracks;
@@ -677,11 +673,10 @@ bool TrapEnabled() {
     return TrapMode() != 0;
 }
 bool ReadQword(u64 address, u64& value) {
-    iovec local{&value, 8}, remote{reinterpret_cast<void*>(address), 8};
-    return process_vm_readv(getpid(), &local, 1, &remote, 1, 0) == 8;
+    return pf_read_memory_safe(&value, address, 8) == 8;
 }
 u32 SignalTid() {
-    return u32(syscall(SYS_gettid));
+    return u32(pf_thread_id());
 }
 void NoteTrapDecoded(u64 label) {
     const u64 page = label & ~(PageSize - 1);
@@ -689,8 +684,7 @@ void NoteTrapDecoded(u64 label) {
         return;
     }
     Header h;
-    iovec local{&h, sizeof(h)}, remote{reinterpret_cast<void*>(page + HeaderOffset), sizeof(h)};
-    if (process_vm_readv(getpid(), &local, 1, &remote, 1, 0) != ssize_t(sizeof(h)) ||
+    if (pf_read_memory_safe(&h, page + HeaderOffset, sizeof(h)) != std::int64_t(sizeof(h)) ||
         !Plausible(page, h)) {
         return;
     }
@@ -704,7 +698,7 @@ void NoteTrapDecoded(u64 label) {
     p.writing_ns = 0;
     t.ever_trapped.insert(page);
     if (TrapMode() == 1 && t.read_only.insert(page).second) {
-        mprotect(reinterpret_cast<void*>(page), PageSize, PROT_READ);
+        pf_vm_protect(reinterpret_cast<void*>(page), PageSize, PF_PROT_READ);
     }
 }
 } // namespace
@@ -739,7 +733,7 @@ void NoteFenceWritten(u64 label, u64 write_ns) {
     if (const auto pp = t.page_pending.find(page); pp != t.page_pending.end() && --pp->second == 0) {
         t.page_pending.erase(pp);
         if (t.read_only.erase(page)) {
-            mprotect(reinterpret_cast<void*>(page), PageSize, PROT_READ | PROT_WRITE);
+            pf_vm_protect(reinterpret_cast<void*>(page), PageSize, PF_PROT_READ | PF_PROT_WRITE);
         }
     }
 }
@@ -753,22 +747,23 @@ struct StepSlot {
     std::atomic<u64> page{0};
 };
 std::array<StepSlot, 256> step_slots;
-struct sigaction previous_trap_action {};
 constexpr u64 TrapFlag = 0x100;
 
-void OnFreeHook(void* ucontext);
-void OnGcHook(void* ucontext);
+void OnFreeHook(PfContext* context);
+void OnGcHook(PfContext* context);
 
-void OnStepTrap(int sig, siginfo_t* info, void* ucontext) {
+// refueled: a handler of the shared dispatcher (pf_exception); the sigaction and the chain to the
+// previous action (previous_trap_action, signal(SIG_DFL) + raise) live there now.
+PfFaultResult OnStepTrap(const PfFault*, PfContext* context, void*) {
     // BB_LABEL_TRAP=2: the breakpoints (RIP is past the int3).
-    const u64 rip = u64(static_cast<ucontext_t*>(ucontext)->uc_mcontext.gregs[REG_RIP]);
+    const u64 rip = pf_context_get(context, PF_REG_RIP);
     if (rip == FreeHook + 1) {
-        OnFreeHook(ucontext);
-        return;
+        OnFreeHook(context);
+        return PF_FAULT_HANDLED;
     }
     if (rip == GcHook + 1) {
-        OnGcHook(ucontext);
-        return;
+        OnGcHook(context);
+        return PF_FAULT_HANDLED;
     }
     const u32 tid = SignalTid();
     for (auto& slot : step_slots) {
@@ -777,46 +772,33 @@ void OnStepTrap(int sig, siginfo_t* info, void* ucontext) {
         }
         const u64 page = slot.page.exchange(0, std::memory_order_acq_rel);
         slot.tid.store(0, std::memory_order_release);
-        static_cast<ucontext_t*>(ucontext)->uc_mcontext.gregs[REG_EFL] &= ~TrapFlag;
+        pf_context_set(context, PF_REG_EFLAGS, pf_context_get(context, PF_REG_EFLAGS) & ~TrapFlag);
         auto& t = Trap();
         std::scoped_lock lk{t.mutex};
         if (page && t.read_only.count(page)) {
-            mprotect(reinterpret_cast<void*>(page), PageSize, PROT_READ);
+            pf_vm_protect(reinterpret_cast<void*>(page), PageSize, PF_PROT_READ);
         }
-        return;
+        return PF_FAULT_HANDLED;
     }
-    // Not a step of ours.
-    if (previous_trap_action.sa_flags & SA_SIGINFO) {
-        if (previous_trap_action.sa_sigaction) {
-            previous_trap_action.sa_sigaction(sig, info, ucontext);
-            return;
-        }
-    } else if (previous_trap_action.sa_handler != SIG_DFL &&
-               previous_trap_action.sa_handler != SIG_IGN && previous_trap_action.sa_handler) {
-        previous_trap_action.sa_handler(sig);
-        return;
-    }
-    signal(SIGTRAP, SIG_DFL);
-    raise(SIGTRAP);
+    return PF_FAULT_CONTINUE_SEARCH; // not a step of ours: the dispatcher chains on
 }
 
 /// int3 over the first byte of an instruction the hook then performs itself.
 bool PatchInt3(u64 address, std::initializer_list<unsigned char> expected) {
     unsigned char bytes[8]{};
-    iovec local{bytes, expected.size()}, remote{reinterpret_cast<void*>(address), expected.size()};
-    if (process_vm_readv(getpid(), &local, 1, &remote, 1, 0) != ssize_t(expected.size()) ||
+    if (pf_read_memory_safe(bytes, address, expected.size()) != std::int64_t(expected.size()) ||
         std::memcmp(bytes, expected.begin(), expected.size()) != 0) {
         std::fprintf(stderr, "Free check: hook skipped (unexpected code at +%#llx)\n",
                      (unsigned long long)(address - ImageBase));
         return false;
     }
     void* page = reinterpret_cast<void*>(address & ~(PageSize - 1));
-    if (mprotect(page, PageSize, PROT_READ | PROT_WRITE | PROT_EXEC) != 0) {
+    if (pf_vm_protect(page, PageSize, PF_PROT_READ | PF_PROT_WRITE | PF_PROT_EXEC) != 0) {
         return false;
     }
     __atomic_store_n(reinterpret_cast<unsigned char*>(address), static_cast<unsigned char>(0xcc),
                      __ATOMIC_SEQ_CST);
-    mprotect(page, PageSize, PROT_READ | PROT_EXEC);
+    pf_vm_protect(page, PageSize, PF_PROT_READ | PF_PROT_EXEC);
     return true;
 }
 
@@ -831,21 +813,17 @@ bool InstallFreeHook() {
 }
 
 void InstallStepTrap() {
-    struct sigaction action {};
-    action.sa_sigaction = OnStepTrap;
-    action.sa_flags = SA_SIGINFO | SA_NODEFER;
-    sigemptyset(&action.sa_mask);
-    sigaction(SIGTRAP, &action, &previous_trap_action);
+    pf_fault_add_handler((1u << PF_FAULT_BREAKPOINT) | (1u << PF_FAULT_SINGLE_STEP), OnStepTrap, nullptr);
 }
 
-bool ArmStep(void* ucontext, u64 page) {
+bool ArmStep(PfContext* context, u64 page) {
     const u32 tid = SignalTid();
     for (auto& slot : step_slots) {
         u32 expected = 0;
         if (slot.tid.load(std::memory_order_acquire) == tid ||
             slot.tid.compare_exchange_strong(expected, tid, std::memory_order_acq_rel)) {
             slot.page.store(page, std::memory_order_release);
-            static_cast<ucontext_t*>(ucontext)->uc_mcontext.gregs[REG_EFL] |= TrapFlag;
+            pf_context_set(context, PF_REG_EFLAGS, pf_context_get(context, PF_REG_EFLAGS) | TrapFlag);
             return true;
         }
     }
@@ -889,16 +867,16 @@ int AppendHistory(char* line, int n, int size, u64 label, const char* name) {
 
 /// The guest call chain at a breakpoint or fault: [rsp] (a leaf's return address) and the
 /// rbp frames, as guest offsets.
-int AppendStack(char* line, int n, int size, const greg_t* g, bool leaf) {
+int AppendStack(char* line, int n, int size, const PfContext* context, bool leaf) {
     if (leaf) {
         u64 ret = 0;
-        if (ReadQword(u64(g[REG_RSP]), ret)) {
+        if (ReadQword(pf_context_get(context, PF_REG_RSP), ret)) {
             n += std::snprintf(line + n, size - n, "\n  caller: %s%#llx", IsGuest(ret) ? "+" : "",
                                (unsigned long long)(IsGuest(ret) ? ret - ImageBase : ret));
         }
     }
     n += std::snprintf(line + n, size - n, "\n  frames:");
-    u64 rbp = u64(g[REG_RBP]);
+    u64 rbp = pf_context_get(context, PF_REG_RBP);
     for (int i = 0; i < 16 && rbp && n < size - 24; ++i) {
         u64 saved = 0, ret = 0;
         if (!ReadQword(rbp, saved) || !ReadQword(rbp + 8, ret)) {
@@ -948,17 +926,15 @@ bool TakeReport(const Pending& p) {
 
 void Emit(char* line, int n, int size) {
     n += std::snprintf(line + n, size - n, "\n");
-    const ssize_t written = write(2, line, std::min<std::size_t>(n, size - 1));
-    (void)written;
+    pf_write_stderr(line, std::min<std::size_t>(n, size - 1));
 }
 
 /// The guest allocator's release (int3): performs the replaced `mov rax, rsi`; a label block
 /// whose fence has not landed is reported with the caller.
-void OnFreeHook(void* ucontext) {
-    auto* g = static_cast<ucontext_t*>(ucontext)->uc_mcontext.gregs;
-    g[REG_RAX] = g[REG_RSI];
-    g[REG_RIP] = greg_t(FreeHook + 3);
-    const u64 block = u64(g[REG_RSI]);
+void OnFreeHook(PfContext* context) {
+    pf_context_set(context, PF_REG_RAX, pf_context_get(context, PF_REG_RSI));
+    pf_context_set(context, PF_REG_RIP, FreeHook + 3);
+    const u64 block = pf_context_get(context, PF_REG_RSI);
     Pending p;
     if (!FindPending(block, p)) {
         return;
@@ -971,7 +947,7 @@ void OnFreeHook(void* ucontext) {
                           "Free check: RELEASED label block %#llx, tid %u, at %.3f s: ",
                           (unsigned long long)block, SignalTid(), NowNs() / 1e9);
     n = AppendState(line, n, sizeof(line), p);
-    n = AppendStack(line, n, sizeof(line), g, true);
+    n = AppendStack(line, n, sizeof(line), context, true);
     u64 value = 0;
     ReadQword(block, value);
     n += std::snprintf(line + n, sizeof(line) - n, "\n  value %#llx", (unsigned long long)value);
@@ -982,11 +958,11 @@ void OnFreeHook(void* ucontext) {
 /// The collector's "done" branch (int3): performs the replaced `mov rcx, [rsp+0x28]`. r14 is the
 /// block taken as done, its first qword the label (or bit 0: a pointer to the batch's label),
 /// eax what the collector read there (4). Reported when that label's fence has not landed.
-void OnGcHook(void* ucontext) {
-    auto* g = static_cast<ucontext_t*>(ucontext)->uc_mcontext.gregs;
-    g[REG_RCX] = greg_t(*reinterpret_cast<const u64*>(u64(g[REG_RSP]) + 0x28));
-    g[REG_RIP] = greg_t(GcHook + 5);
-    const u64 node = u64(g[REG_R14]);
+void OnGcHook(PfContext* context) {
+    pf_context_set(context, PF_REG_RCX,
+                   *reinterpret_cast<const u64*>(pf_context_get(context, PF_REG_RSP) + 0x28));
+    pf_context_set(context, PF_REG_RIP, GcHook + 5);
+    const u64 node = pf_context_get(context, PF_REG_R14);
     u64 raw = 0;
     ReadQword(node, raw);
     const u64 label = (raw & 1) ? raw & ~1ull : node;
@@ -1004,7 +980,7 @@ void OnGcHook(void* ucontext) {
                           "Free check: TAKEN AS DONE block %#llx, tid %u, at %.3f s: first qword "
                           "%#llx, read %#x",
                           (unsigned long long)node, SignalTid(), NowNs() / 1e9,
-                          (unsigned long long)raw, unsigned(g[REG_RAX]));
+                          (unsigned long long)raw, unsigned(pf_context_get(context, PF_REG_RAX)));
     if (label_pending) {
         n += std::snprintf(line + n, sizeof(line) - n, "\n  label %#llx: ",
                            (unsigned long long)label);
@@ -1014,7 +990,7 @@ void OnGcHook(void* ucontext) {
         n += std::snprintf(line + n, sizeof(line) - n, "\n  block's own label: ");
         n = AppendState(line, n, sizeof(line), own);
     }
-    n = AppendStack(line, n, sizeof(line), g, false);
+    n = AppendStack(line, n, sizeof(line), context, false);
     n = AppendHistory(line, n, sizeof(line), label, "label");
     if (label != node) {
         n = AppendHistory(line, n, sizeof(line), node, "block");
@@ -1023,7 +999,7 @@ void OnGcHook(void* ucontext) {
 }
 } // namespace
 
-bool OnTrapFault(void* ucontext, u64 address) {
+bool OnTrapFault(PfContext* context, u64 address) {
     if (TrapMode() != 1) {
         return false;
     }
@@ -1038,13 +1014,13 @@ bool OnTrapFault(void* ucontext, u64 address) {
     const bool hit = it != t.pending.end();
     const Pending p = hit ? it->second : Pending{};
     // Writable for the faulting instruction only (single step), read-only again after it.
-    mprotect(reinterpret_cast<void*>(page), PageSize, PROT_READ | PROT_WRITE);
-    if (!ArmStep(ucontext, page)) {
+    pf_vm_protect(reinterpret_cast<void*>(page), PageSize, PF_PROT_READ | PF_PROT_WRITE);
+    if (!ArmStep(context, page)) {
         t.read_only.erase(page);
     }
     lk.unlock();
-    const auto* g = static_cast<const ucontext_t*>(ucontext)->uc_mcontext.gregs;
-    if (!hit || !IsGuest(u64(g[REG_RIP]))) {
+    const u64 rip = pf_context_get(context, PF_REG_RIP);
+    if (!hit || !IsGuest(rip)) {
         return true;
     }
     t.hits.fetch_add(1, std::memory_order_relaxed);
@@ -1056,11 +1032,13 @@ bool OnTrapFault(void* ucontext, u64 address) {
                           "Free check: TRAP guest write %#llx into a label block, tid %u, at %.3f "
                           "s: rip +%#llx rdi %#llx rsi %#llx rax %#llx rcx %#llx\n  ",
                           (unsigned long long)address, SignalTid(), NowNs() / 1e9,
-                          (unsigned long long)(u64(g[REG_RIP]) - ImageBase),
-                          (unsigned long long)g[REG_RDI], (unsigned long long)g[REG_RSI],
-                          (unsigned long long)g[REG_RAX], (unsigned long long)g[REG_RCX]);
+                          (unsigned long long)(rip - ImageBase),
+                          (unsigned long long)pf_context_get(context, PF_REG_RDI),
+                          (unsigned long long)pf_context_get(context, PF_REG_RSI),
+                          (unsigned long long)pf_context_get(context, PF_REG_RAX),
+                          (unsigned long long)pf_context_get(context, PF_REG_RCX));
     n = AppendState(line, n, sizeof(line), p);
-    n = AppendStack(line, n, sizeof(line), g, true);
+    n = AppendStack(line, n, sizeof(line), context, true);
     u64 old = 0;
     ReadQword(address & ~7ull, old);
     n += std::snprintf(line + n, sizeof(line) - n, "\n  old value %#llx", (unsigned long long)old);
@@ -1083,7 +1061,7 @@ bool OnStaleTrapFault(u64 address) {
     // handler got the lock: the page is writable again (or made so) and the write is retried.
     // Trapped again meanwhile: the retry faults into OnTrapFault.
     if (!t.read_only.count(page)) {
-        mprotect(reinterpret_cast<void*>(page), PageSize, PROT_READ | PROT_WRITE);
+        pf_vm_protect(reinterpret_cast<void*>(page), PageSize, PF_PROT_READ | PF_PROT_WRITE);
     }
     return true;
 }
