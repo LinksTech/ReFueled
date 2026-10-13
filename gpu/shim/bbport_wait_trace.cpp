@@ -76,7 +76,7 @@ Scope::Scope() {
     }
     // refueled: was backtrace(frames, 10). pf_backtrace's frames[0] is its own code (like glibc's
     // backtrace it is the caller of backtrace): one frame deeper, so ask for one more and drop it.
-    void* all[std::size(frames) + 1];
+    void* all[MaxFrames + 1]; // refueled: was std::size(frames) + 1 (variably modified type under clang)
     const int got = pf_backtrace(all, int(std::size(all)));
     depth = got > 1 ? got - 1 : 0;
     for (int i = 0; i < depth; ++i) {
