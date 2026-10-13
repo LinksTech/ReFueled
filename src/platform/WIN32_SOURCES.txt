@@ -1,3 +1,23 @@
-# refueled: common sources (src/, gpu/shim) that build-windows.sh compiles into the Windows
-# binary, one path per line relative to the repository root. Blank lines and lines starting
-# with '#' are ignored. Entries are added package by package (R*, G*, S*, V*).
+# refueled: common sources (src/, gpu/shim) that build-windows.sh compiles into sacredfire.exe,
+# one path per line relative to the repository root. Blank lines and lines starting with '#' are
+# ignored. Entries are added package by package (R*, G*, S*, V*). Sorted.
+src/probe.c
+src/runtime.c
+src/runtime_ajm.c
+src/runtime_audio.c
+src/runtime_content.c
+src/runtime_eventflag.c
+src/runtime_file.c
+src/runtime_json2.c
+src/runtime_kernel.c
+src/runtime_memory.c
+src/runtime_mutex.c
+src/runtime_pad.c
+src/runtime_rtc.c
+src/runtime_rwlock.c
+src/runtime_savedata.c
+src/runtime_sema.c
+src/runtime_services.c
+src/runtime_thread.c
+src/runtime_time.c
+src/vulkan_smoke.c
