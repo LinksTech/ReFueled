@@ -42,7 +42,9 @@ CXX=${CXX:-clang++}
 out=out/win
 mkdir -p "$out/obj/common"
 
-cflags=(-std=c11 -D_GNU_SOURCE -D_FILE_OFFSET_BITS=64 -O2 -g -gcodeview -Wall -Wextra -Werror -Isrc -I.)
+# -D_GNU_SOURCE= (empty, as the sources' own "#define _GNU_SOURCE"): no -Wmacro-redefined against them.
+# -Wno-unused-but-set-global: clang 23 warns on debug counters that are only written (gcc on Linux does not).
+cflags=(-std=c11 -D_GNU_SOURCE= -D_FILE_OFFSET_BITS=64 -O2 -g -gcodeview -Wall -Wextra -Werror -Wno-unused-but-set-global -Isrc -I.)
 if [[ -f src/platform/pf_posix_gap_win32.h ]]; then
     cflags+=(-include src/platform/pf_posix_gap_win32.h)
 fi

@@ -20,7 +20,7 @@ static uint64_t monotonic_ns(void) {
 }
 
 void pf_sleep_until_ns(uint64_t deadline_ns) {
-    static __declspec(thread) HANDLE timer;
+    static _Thread_local HANDLE timer; /* one waitable timer per thread */
     if (!timer) {
         timer = CreateWaitableTimerExW(NULL, NULL, CREATE_WAITABLE_TIMER_HIGH_RESOLUTION, TIMER_ALL_ACCESS);
         if (!timer) timer = CreateWaitableTimerExW(NULL, NULL, 0, TIMER_ALL_ACCESS); /* before Windows 10 1803 */

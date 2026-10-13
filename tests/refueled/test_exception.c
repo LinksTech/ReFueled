@@ -168,7 +168,7 @@ static void test_context(void) {
 static void test_context(void) {
     CONTEXT native;
     memset(&native, 0, sizeof native);
-    PfContext context = {&native};
+    PfContext context = {&native, PF_ACCESS_UNKNOWN};
     CHECK(pf_context_native(&context) == &native);
     for (int r = 0; r < PF_REG_COUNT; r++) pf_context_set(&context, (PfReg)r, 0x1000u + (uint64_t)r);
     int ok = 1;
