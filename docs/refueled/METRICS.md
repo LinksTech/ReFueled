@@ -28,6 +28,7 @@ sched_*affinity, SCHED_IDLE, setpriority, prctl), pthread-np, getdents, ftw, dl,
 |---|---|---|---|---|---|---|---|
 | 2026-10-12 | f1f7935 (Baseline) | **335** | 283 | 52 | 696 | 23 | Ausgangswert vor jeder Änderung |
 | 2026-10-13 | 1fa93bc (Welle 1) | **335** | 283 | 52 | 696 | 23 | Plattformschicht beider Plattformen fertig (K1, K2a, K4, K5a, K8, LH, R2/R3-Plattformteil); Aufrufer noch nicht umgestellt (braucht den Linux-Gesamtbuild in Nix) |
+| 2026-10-13 | Welle A (ohne CLANG64) | **27** | 13 | 14 | 358 | – | Aufrufer umgestellt (K2, K3, K5, R1, R2b, R4, R5a, S1, S2, S3, V1, V2, V3). Rest gewollt: userfaultfd (D13, unter `__linux__`), dma-buf-Vulkan-Enums (D12, übersetzen unter Windows, laufen nie), fdinfo-Statistik unter `__linux__`, ftruncate/condattr_setclock über die Gap-Schicht (F6), malloc.h-Fehlalarm |
 
 ## Baseline nach Kategorie (eigener Code / bbport-Zeilen)
 
