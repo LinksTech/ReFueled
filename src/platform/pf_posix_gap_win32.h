@@ -120,6 +120,10 @@ PF_GAP_STATIC_ASSERT(sizeof(off_t) == 8, "refueled: define _FILE_OFFSET_BITS=64 
  * accepted and ignored; O_DIRECTORY is a private bit: pf_gap_open() then opens the directory
  * (read only) so that fsync() on it succeeds as a no-op, any non-directory fails with ENOTDIR. */
 #define PF_GAP_O_DIRECTORY 0x01000000
+/* O_SYNC is a private bit too (no MinGW _O_* value is >= 0x01000000): pf_gap_open() strips it
+ * before _open(), marks the returned descriptor, and pf_gap_write()/pf_gap_pwrite() then _commit()
+ * after every successful write. pf_gap_close() clears the mark. */
+#define PF_GAP_O_SYNC 0x02000000
 #ifndef _MSC_VER
 #ifndef O_CLOEXEC
 #define O_CLOEXEC _O_NOINHERIT
@@ -129,6 +133,9 @@ PF_GAP_STATIC_ASSERT(sizeof(off_t) == 8, "refueled: define _FILE_OFFSET_BITS=64 
 #endif
 #ifndef O_DIRECTORY
 #define O_DIRECTORY PF_GAP_O_DIRECTORY
+#endif
+#ifndef O_SYNC
+#define O_SYNC PF_GAP_O_SYNC
 #endif
 #endif
 
@@ -179,6 +186,10 @@ pf_gap_ssize_t pf_gap_pread(int fd, void *buffer, size_t size, int64_t offset);
 pf_gap_ssize_t pf_gap_pwrite(int fd, const void *buffer, size_t size, int64_t offset);
 int64_t pf_gap_lseek(int fd, int64_t offset, int whence);
 int pf_gap_fsync(int fd);
+/* close(): clears the O_SYNC mark of the descriptor, then _close(). */
+int pf_gap_close(int fd);
+/* Test helper: 1 if the descriptor was opened with O_SYNC and is still open, else 0. */
+int pf_gap_fd_is_sync(int fd);
 int pf_gap_ftruncate(int fd, int64_t length);
 int pf_gap_truncate(const char *path, int64_t length);
 int pf_gap_fseeko(FILE *stream, int64_t offset, int whence);
@@ -238,6 +249,7 @@ PF_GAP_END_DECLS
 #define pwrite(fd, buffer, size, offset) pf_gap_pwrite((fd), (buffer), (size), (offset))
 #define lseek(fd, offset, whence) pf_gap_lseek((fd), (offset), (whence))
 #define fsync(fd) pf_gap_fsync(fd)
+#define close(fd) pf_gap_close(fd)
 #define ftruncate(fd, length) pf_gap_ftruncate((fd), (length))
 #define truncate(path, length) pf_gap_truncate((path), (length))
 #define fseeko(stream, offset, whence) pf_gap_fseeko((stream), (offset), (whence))

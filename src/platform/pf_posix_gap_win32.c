@@ -20,6 +20,7 @@
 #undef pwrite
 #undef lseek
 #undef fsync
+#undef close
 #undef ftruncate
 #undef truncate
 #undef fseeko
@@ -162,6 +163,44 @@ uint64_t pf_gap_io_chunk_count(uint64_t total) {
     return total / PF_GAP_IO_MAX + (total % PF_GAP_IO_MAX != 0);
 }
 
+/* ---- O_SYNC emulation ---------------------------------------------------------------------- */
+
+/* One bit per CRT descriptor. The UCRT low-level I/O table holds at most 8192 descriptors
+ * (_NHANDLE_), so this bitfield covers every descriptor _open()/_open_osfhandle() can return;
+ * larger values are never marked (is_sync() returns 0). Lock-free via interlocked operations. */
+#define SYNC_FD_MAX 8192
+static volatile LONG g_sync_bits[SYNC_FD_MAX / 32];
+
+static void sync_mark(int fd, int on) {
+    if (fd < 0 || fd >= SYNC_FD_MAX) return;
+    LONG mask = (LONG)(1u << (fd & 31));
+    if (on) InterlockedOr(&g_sync_bits[fd >> 5], mask);
+    else InterlockedAnd(&g_sync_bits[fd >> 5], ~mask);
+}
+
+static int sync_marked(int fd) {
+    if (fd < 0 || fd >= SYNC_FD_MAX) return 0;
+    return (InterlockedOr(&g_sync_bits[fd >> 5], 0) >> (fd & 31)) & 1;
+}
+
+int pf_gap_fd_is_sync(int fd) { return sync_marked(fd); }
+
+/* POSIX O_SYNC: write() returns only after the data is on stable storage; a failure to write it
+ * through is a write failure (EIO). Called after a successful write of `done` > 0 bytes. */
+static pf_gap_ssize_t sync_after_write(int fd, pf_gap_ssize_t done) {
+    if (done > 0 && sync_marked(fd) && _commit(fd) != 0) {
+        errno = EIO;
+        return -1;
+    }
+    return done;
+}
+
+int pf_gap_close(int fd) {
+    crt_once();
+    sync_mark(fd, 0); /* before _close: afterwards another thread may already have reused the number */
+    return _close(fd);
+}
+
 /* ---- open / read / write ------------------------------------------------------------------ */
 
 int pf_gap_open(const char *path, int flags, ...) {
@@ -191,11 +230,15 @@ int pf_gap_open(const char *path, int flags, ...) {
         if (h == INVALID_HANDLE_VALUE) { errno = errno_from_win32(GetLastError()); return -1; }
         int fd = _open_osfhandle((intptr_t)h, _O_RDONLY | _O_BINARY);
         if (fd < 0) { CloseHandle(h); errno = EMFILE; }
+        else sync_mark(fd, 0);
         return fd;
     }
-    flags &= ~(_O_TEXT | _O_WTEXT | _O_U16TEXT | _O_U8TEXT);
+    int want_sync = (flags & PF_GAP_O_SYNC) != 0;
+    flags &= ~(_O_TEXT | _O_WTEXT | _O_U16TEXT | _O_U8TEXT | PF_GAP_O_SYNC);
     flags |= _O_BINARY;
-    return _open(path, flags, mode & (_S_IREAD | _S_IWRITE));
+    int fd = _open(path, flags, mode & (_S_IREAD | _S_IWRITE));
+    if (fd >= 0) sync_mark(fd, want_sync); /* also clears a stale mark of a descriptor closed via _close */
+    return fd;
 }
 
 pf_gap_ssize_t pf_gap_read(int fd, void *buffer, size_t size) {
@@ -231,7 +274,7 @@ pf_gap_ssize_t pf_gap_write(int fd, const void *buffer, size_t size) {
         done += (size_t)n;
         if ((size_t)n < chunk) break;
     }
-    return (pf_gap_ssize_t)done;
+    return sync_after_write(fd, (pf_gap_ssize_t)done);
 }
 
 /* ---- pread / pwrite ----------------------------------------------------------------------- */
@@ -294,7 +337,7 @@ pf_gap_ssize_t pf_gap_pread(int fd, void *buffer, size_t size, int64_t offset) {
 }
 
 pf_gap_ssize_t pf_gap_pwrite(int fd, const void *buffer, size_t size, int64_t offset) {
-    return positional_io(fd, (void *)buffer, size, offset, POS_WRITE);
+    return sync_after_write(fd, positional_io(fd, (void *)buffer, size, offset, POS_WRITE));
 }
 
 /* ---- 64-bit seek / truncate --------------------------------------------------------------- */
