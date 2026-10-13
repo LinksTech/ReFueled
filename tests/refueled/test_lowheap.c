@@ -6,7 +6,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#ifndef _WIN32
 #include <sys/mman.h>
+#endif
 
 static int g_checks;
 static int g_failed;
@@ -15,6 +17,25 @@ static int g_failed;
 
 #define HEAP_BYTES ((size_t)16 << 20)
 
+#ifdef _WIN32
+/* Windows: the area comes from the platform layer. The first low region is reserved once (as the
+ * runtime does at start-up) and a free slot in it is taken with pf_vm_alloc_fixed; the region is
+ * far below 1 TiB. */
+#define LOW_BASE ((uintptr_t)0x800000000ull)
+#define LOW_SIZE ((uint64_t)0x800000000ull)
+static unsigned char *make_area(size_t size) {
+    static int reserved;
+    if (!reserved) {
+        if (pf_vm_reserve_layout(LOW_BASE, LOW_SIZE) != 0) { fputs("test_lowheap: cannot reserve the low region\n", stderr); exit(2); }
+        reserved = 1;
+    }
+    for (uintptr_t hint = LOW_BASE; hint + size <= LOW_BASE + LOW_SIZE; hint += (uintptr_t)1 << 30)
+        if (pf_vm_alloc_fixed(hint, size, PF_PROT_READ | PF_PROT_WRITE) == 0) return (unsigned char *)hint;
+    fputs("test_lowheap: cannot map test area below 1 TiB\n", stderr);
+    exit(2);
+}
+static void free_area(void *area, size_t size) { pf_vm_free(area, size); }
+#else
 /* The setup insists on a range below 1 TiB, and large malloc blocks come from mmap far above
  * that, so the test area is mapped at a fixed low hint (MAP_FIXED_NOREPLACE, first free slot). */
 static unsigned char *make_area(size_t size) {
@@ -35,6 +56,7 @@ static unsigned char *make_area(size_t size) {
     exit(2);
 }
 static void free_area(void *area, size_t size) { munmap(area, size); }
+#endif
 
 static void test_setup(void) {
     PfLowHeap h;
@@ -205,6 +227,7 @@ static void test_threads(void) {
     free_area(area, HEAP_BYTES);
 }
 
+#ifndef _WIN32
 static void test_linux_wrappers(void) {
     CHECK(pf_low_heap_init(0, 0) == 0);
     unsigned char *p = pf_low_calloc(4, 32);
@@ -218,13 +241,16 @@ static void test_linux_wrappers(void) {
     pf_low_free(q);
     pf_low_free(NULL);
 }
+#endif
 
 int main(void) {
     test_setup();
     test_alignment_and_zero();
     test_reuse_and_coalesce();
     test_threads();
+#ifndef _WIN32
     test_linux_wrappers();
+#endif
     if (g_failed) { printf("test_lowheap: %d of %d checks FAILED\n", g_failed, g_checks); return 1; }
     printf("test_lowheap: %d checks passed\n", g_checks);
     return 0;

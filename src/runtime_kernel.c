@@ -312,7 +312,7 @@ static ABI void pthread_cxa_finalize(void *dso) { runtime_finalize(dso); }
 /* Module queries used by libc's unwinder and dladdr paths: the image has one module (the eboot) plus
  * the linked libc/Fios2, none registered with a dynamic loader. "No such module" (ESRCH) makes the
  * unwinder stop at the frame, as it does on a console for addresses outside any module. */
-static _Atomic unsigned module_info_misses;
+static unsigned module_info_misses; /* accessed only through __atomic builtins */
 static ABI int32_t module_info_from_addr(uint64_t address,int flags,void *info) {
     (void)flags; (void)info;
     if (__atomic_fetch_add(&module_info_misses,1,__ATOMIC_RELAXED)<4) printf("Kernel: sceKernelGetModuleInfoFromAddr(%#llx) -> ESRCH\n",(unsigned long long)address);
@@ -332,7 +332,7 @@ static ABI int32_t sanitizer_enabled(void) { return 0; }
 static ABI void *sanitizer_replace(void) { return NULL; }
 /* libc's heap asks for the module's segment layout to size its arena bookkeeping: an answer of
  * "not available" makes it use its defaults (the SDK's libc handles the error). Logged to confirm. */
-static _Atomic unsigned segment_info_calls;
+static unsigned segment_info_calls; /* accessed only through __atomic builtins */
 static ABI int32_t memory_module_segment_info(void *info) {
     (void)info;
     if (__atomic_fetch_add(&segment_info_calls,1,__ATOMIC_RELAXED)<2) puts("Kernel: sceKernelInternalMemoryGetModuleSegmentInfo -> EINVAL (defaults)");

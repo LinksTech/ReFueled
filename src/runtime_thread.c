@@ -328,7 +328,7 @@ static ABI int32_t thread_getthreadid(void) { return (int32_t)pf_thread_id(); }
 /* Deferred cancellation: a thread without cancellation points keeps running, as on the console; the
  * request is noted so the caller sees success. No guest thread of this game is expected to reach a
  * cancellation point; a cancel that must take effect would need the point implemented. */
-static _Atomic unsigned cancels;
+static unsigned cancels; /* accessed only through __atomic builtins */
 static ABI int32_t thread_cancel(GuestThread *t) {
     if (!find_thread(t)) return ERR(3);
     if (__atomic_fetch_add(&cancels,1,__ATOMIC_RELAXED)<4) printf("Runtime: scePthreadCancel(%s) noted; deferred cancellation never fires here\n",t->name);
