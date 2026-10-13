@@ -7,10 +7,15 @@
 #include <chrono>
 #include <cstdio>
 #include <time.h>
+#ifdef __linux__ // refueled: getrusage/dirent/DRM fdinfo are Linux-only (statistics)
 #include <sys/resource.h>
+#endif
 #include <cstring>
+#ifdef __linux__ // refueled
 #include <dirent.h>
+#endif
 #include <unistd.h>
+#include "platform/pf_process.h" // refueled: pf_process_memory, pf_gpu_memory_in_use
 #include "common/assert.h"
 #include "bbport_toggles.h"
 #include "bbport_heap_sites.h"
@@ -304,6 +309,7 @@ int VideoOutDriver::ChangeBufferAttribute(VideoOutPort* port, s32 attributeIndex
 static void PrintMemory() {
     u64 vram_kib = 0, gtt_kib = 0;
     std::vector<u64> clients;
+#ifdef __linux__ // refueled: unchanged on Linux (VRAM and GTT are printed separately)
     if (DIR* dir = opendir("/proc/self/fdinfo")) {
         while (const dirent* entry = readdir(dir)) {
             char path[64];
@@ -331,14 +337,15 @@ static void PrintMemory() {
         }
         closedir(dir);
     }
-    unsigned long long size_pages = 0, rss_pages = 0;
-    if (FILE* statm = std::fopen("/proc/self/statm", "r")) {
-        if (std::fscanf(statm, "%llu %llu", &size_pages, &rss_pages) != 2) {
-            rss_pages = 0;
-        }
-        std::fclose(statm);
+#else // refueled: no VRAM/GTT split from pf_gpu_memory_in_use; its sum is shown as VRAM
+    if (uint64_t gpu_bytes = 0; pf_gpu_memory_in_use(&gpu_bytes) == 0) {
+        vram_kib = gpu_bytes >> 10;
     }
-    const u64 rss = u64(rss_pages) * u64(sysconf(_SC_PAGESIZE));
+#endif
+    uint64_t rss = 0; // refueled: was /proc/self/statm + sysconf(_SC_PAGESIZE)
+    if (pf_process_memory(&rss, nullptr) != 0) {
+        rss = 0;
+    }
     const u64 device = BbStats::device_alloc_bytes.load() - BbStats::device_free_bytes.load();
     u64 vma_blocks = 0, vma_used = 0;
     Vulkan::VmaDeviceUsage(vma_blocks, vma_used);
@@ -411,9 +418,11 @@ void VideoOutDriver::Flip(const Request& req) {
         last_twf = twf;
         const u64 copy_ns = BbStats::t_copy.load(), copy_bytes = BbStats::copy_bytes.load();
         u64 proc_flt = 0;
+#ifdef __linux__ // refueled: getrusage is Linux-only
         if (rusage usage{}; getrusage(RUSAGE_SELF, &usage) == 0) {
             proc_flt = usage.ru_minflt;
         }
+#endif
         const u64 t_now[6] = {BbStats::t_resident.load(), BbStats::t_protect.load(),
                               BbStats::t_image_create.load(), BbStats::t_refresh.load(),
                               BbStats::t_staging.load(), BbStats::t_host_wait.load()};
@@ -423,11 +432,13 @@ void VideoOutDriver::Flip(const Request& req) {
                   user_us = BbStats::gpu_user_us.load(), invol = BbStats::gpu_invol_switches.load(),
                   vol = BbStats::gpu_vol_switches.load();
         u64 gpu_ns = 0;
+#ifdef __linux__ // refueled: reads another thread's CPU clock id (clockid_t), Linux-only
         if (const int clock = BbStats::gpu_thread_clock.load(); clock != -1) {
             timespec ts{};
             clock_gettime(static_cast<clockid_t>(clock), &ts);
             gpu_ns = u64(ts.tv_sec) * 1000000000ull + u64(ts.tv_nsec);
         }
+#endif
         const u64 images = BbStats::images_registered.load();
         const u64 image_bytes = BbStats::image_upload_bytes.load();
         const u64 buffer_bytes = BbStats::buffer_upload_bytes.load();

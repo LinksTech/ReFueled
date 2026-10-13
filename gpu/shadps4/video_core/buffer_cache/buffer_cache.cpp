@@ -16,6 +16,7 @@
 #include "bbport_clobber.h"
 #include "bbport_guest_memory.h"
 #include "bbport_guest_hooks.h"
+#include "platform/pf_thread.h" // refueled: pf_thread_get_name
 #include "common/alignment.h"
 #include "core/memory.h"
 #include "video_core/amdgpu/liverpool.h"
@@ -592,7 +593,7 @@ void BufferCache::ReadMemory(VAddr device_addr, u64 size, bool is_write, bool as
     BbStats::readbacks.fetch_add(1, std::memory_order_relaxed);
     std::array<char, 16> requester{};
     if (Readbacks()) {
-        pthread_getname_np(pthread_self(), requester.data(), requester.size());
+        pf_thread_get_name(requester.data(), requester.size()); // refueled: was pthread_getname_np(pthread_self(), ...)
     }
     const auto flush_request = [this, device_addr, size, is_write, requester] {
         readback_requester = requester.data();

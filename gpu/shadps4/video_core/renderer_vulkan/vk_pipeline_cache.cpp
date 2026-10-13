@@ -14,6 +14,7 @@
 #include <thread>
 #include <unordered_set>
 
+#include "platform/pf_jmp.h" // refueled: pf_sigjmp_buf, pf_sigsetjmp
 #include "common/hash.h"
 #include "common/io_file.h"
 #include "common/path_util.h"
@@ -1083,8 +1084,8 @@ PipelineCache::Result PipelineCache::GetProgram(PipelineSelection& sel, HwStage 
         // pointers in the registers; ahead of the GPU thread that memory may already be
         // reused. A fault returns here (runtime_fault_recover) and the draw is left to the GPU
         // thread. A jump out of the specialization leaks its partial allocations (rare).
-        sigjmp_buf recover;
-        if (sigsetjmp(recover, 0)) {
+        pf_sigjmp_buf recover; // refueled: was sigjmp_buf
+        if (pf_sigsetjmp(recover)) { // refueled: was sigsetjmp(recover, 0)
             worker.failed = true;
             return {};
         }

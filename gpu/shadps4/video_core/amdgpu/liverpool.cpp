@@ -4,9 +4,12 @@
 #include <chrono>
 #include <thread>
 #include <pthread.h>
+#ifdef __linux__ // refueled: getrusage is Linux-only (statistics)
 #include <sys/resource.h>
-#include <sys/uio.h>
+#endif
 #include <unistd.h>
+#include "platform/pf_memory.h" // refueled: pf_read_memory_safe
+#include "platform/pf_thread.h" // refueled: pf_thread_id
 #include <array>
 #include <time.h>
 #include "bbport_threads.h"
@@ -120,9 +123,11 @@ void Liverpool::ProcessCommands() {
 
 void Liverpool::Process(std::stop_token stoken) {
     Common::SetCurrentThreadName("shadPS4:GpuCommandProcessor");
+#ifdef __linux__ // refueled: the clock id is read by another thread (driver.cpp); pf_thread_cpu_time_ns only reads the calling thread, so this stays Linux-only
     if (clockid_t clock; pthread_getcpuclockid(pthread_self(), &clock) == 0) {
         BbStats::gpu_thread_clock.store(static_cast<int>(clock));
     }
+#endif
     gpu_id = std::this_thread::get_id();
 #ifdef __linux__
     gpu_tid = gettid();
@@ -1049,9 +1054,9 @@ void ReportBadPacket(uintptr_t base, std::size_t dwords, const u32* at, u64 seq,
         const std::size_t offset = at - copy->data.data();
         const u32* guest = copy->guest_dcb + offset;
         u32 guest_now = 0;
-        iovec local{&guest_now, sizeof(guest_now)}, remote{const_cast<u32*>(guest), sizeof(u32)};
-        const bool readable =
-            process_vm_readv(getpid(), &local, 1, &remote, 1, 0) == ssize_t(sizeof(u32));
+        const bool readable = // refueled: was process_vm_readv(getpid(), ...)
+            pf_read_memory_safe(&guest_now, reinterpret_cast<uintptr_t>(guest), sizeof(u32)) ==
+            int64_t(sizeof(u32));
         char at_submit[32], at_decode[32], guest_str[16];
         if (copy->bad_at_submit < 0) {
             std::snprintf(at_submit, sizeof(at_submit), "none");
@@ -1807,6 +1812,7 @@ Liverpool::Task Liverpool::ProcessGraphics(std::span<const u32> dcb, std::span<c
     }
     if (seq != NoSeq && BbStats::enabled) {
         BbStats::submissions.fetch_add(1, std::memory_order_relaxed);
+#ifdef __linux__ // refueled: getrusage(RUSAGE_THREAD) is Linux-only (statistics)
         if (rusage usage{}; getrusage(RUSAGE_THREAD, &usage) == 0) {
             BbStats::gpu_user_us.store(u64(usage.ru_utime.tv_sec) * 1000000 + usage.ru_utime.tv_usec,
                                        std::memory_order_relaxed);
@@ -1816,6 +1822,7 @@ Liverpool::Task Liverpool::ProcessGraphics(std::span<const u32> dcb, std::span<c
             BbStats::gpu_vol_switches.store(usage.ru_nvcsw, std::memory_order_relaxed);
             BbStats::gpu_minor_faults.store(usage.ru_minflt, std::memory_order_relaxed);
         }
+#endif // refueled
     }
 
     if (copy && BbFreeCheck::Enabled()) {
@@ -2241,7 +2248,7 @@ void Liverpool::SubmitGfx(std::span<const u32> dcb, std::span<const u32> ccb) {
                              (unsigned long long)copy->bad_at_submit * 4,
                              static_cast<const void*>(guest),
                              static_cast<const void*>(copy->guest_dcb),
-                             (unsigned long long)(copy->dcb_dwords * 4), unsigned(gettid()));
+                             (unsigned long long)(copy->dcb_dwords * 4), unsigned(pf_thread_id())); // refueled: was gettid()
                 BbClobber::DumpWritesInto(reinterpret_cast<u64>(guest), sizeof(u32));
                 std::fflush(stderr);
                 BbClobber::AskForReport();
@@ -2339,8 +2346,9 @@ void Liverpool::CheckSubmittedCopy(const SubmittedCopy& copy, u64 seq) {
         std::array<u32, 1024> buf;
         for (std::size_t at = 0; at < dwords; at += buf.size()) {
             const std::size_t n = std::min(buf.size(), dwords - at);
-            iovec local{buf.data(), n * 4}, remote{const_cast<u32*>(guest + at), n * 4};
-            if (process_vm_readv(getpid(), &local, 1, &remote, 1, 0) != ssize_t(n * 4)) {
+            // refueled: was process_vm_readv(getpid(), ...)
+            if (pf_read_memory_safe(buf.data(), reinterpret_cast<uintptr_t>(guest + at), n * 4) !=
+                int64_t(n * 4)) {
                 // bbport BB_GUEST_IN_PLACE: dma-buf guest memory is not readable that way; still
                 // mapped, it is read directly.
                 int prot = 0, type = -1;
@@ -2392,8 +2400,9 @@ void Liverpool::CheckSubmittedCopy(const SubmittedCopy& copy, u64 seq) {
     const std::size_t dwords = dcb_change != -1 ? copy.dcb_dwords : copy.ccb_dwords;
     const std::size_t from = at >= 8 ? at - 8 : 0, to = std::min<std::size_t>(dwords, at + 8);
     std::array<u32, 16> now{};
-    iovec local{now.data(), (to - from) * 4}, remote{const_cast<u32*>(guest + from), (to - from) * 4};
-    const bool readable = process_vm_readv(getpid(), &local, 1, &remote, 1, 0) == ssize_t((to - from) * 4);
+    const bool readable = // refueled: was process_vm_readv(getpid(), ...)
+        pf_read_memory_safe(now.data(), reinterpret_cast<uintptr_t>(guest + from), (to - from) * 4) ==
+        int64_t((to - from) * 4);
     std::printf("  submitted:");
     for (std::size_t i = from; i < to; ++i) {
         std::printf(i == std::size_t(at) ? " [%08x]" : " %08x", kept[i]);
