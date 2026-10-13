@@ -194,11 +194,10 @@ if [[ -z ${skip[resource]:-} ]]; then
 fi
 
 # ---- 6. Link -> out/win/sacredfire.exe ---------------------------------------------------------
-if [[ -z ${skip[link]:-} ]] && ((keep_going && failures)); then
-    echo "link skipped: $failures step(s) failed before it" >&2
-elif [[ -z ${skip[link]:-} ]]; then
-    link_log=/dev/stderr
-    if ((keep_going)); then link_log=$census/link.log; fi
+# gpu_link_inputs: sets gpu_group, the GPU library and everything it needs at link time (also for
+# the runtime tests, which link the GPU library as on Linux).
+gpu_link_inputs() {
+    local -a libraries gpu_pkg_libraries gpu_archives zydis windows_libraries
     read -r -a libraries <<< "$(pkg-config --libs vulkan sdl3)"
     read -r -a gpu_pkg_libraries <<< "$(pkg-config --libs fmt libxxhash libavformat libavcodec libavutil libswscale libswresample)"
     # bbgpu is static and CMake does not bundle its static dependencies (sirit, FSR-Vulkan, ...),
@@ -214,11 +213,19 @@ elif [[ -z ${skip[link]:-} ]]; then
     # shell32 ws2_32 mswsock)) travel only as CMake usage requirements. kernel32 before mincore, so
     # that only what kernel32 lacks (CreateFileMapping2, common/io_file.cpp) comes from mincore.
     windows_libraries=(-lshell32 -lws2_32 -lmswsock -lkernel32 -lmincore)
+    gpu_group=(-Wl,--start-group "${gpu_archives[@]}" "${zydis[@]}" -Wl,--end-group
+               "${gpu_pkg_libraries[@]}" "${libraries[@]}" "${windows_libraries[@]}")
+}
+if [[ -z ${skip[link]:-} ]] && ((keep_going && failures)); then
+    echo "link skipped: $failures step(s) failed before it" >&2
+elif [[ -z ${skip[link]:-} ]]; then
+    link_log=/dev/stderr
+    if ((keep_going)); then link_log=$census/link.log; fi
+    gpu_link_inputs
     linked=0
     "$CXX" -O2 -g -gcodeview "${ldflags[@]}" -Wl,--pdb="$out/sacredfire.pdb" \
         "${common_objects[@]}" "$out/libpf.a" "$out/libatrac9.a" "$out/sacredfire.res.o" \
-        -Wl,--start-group "${gpu_archives[@]}" "${zydis[@]}" -Wl,--end-group \
-        "${gpu_pkg_libraries[@]}" "${libraries[@]}" "${windows_libraries[@]}" -lpthread -lm -o "$out/sacredfire.exe" 2> "$link_log" \
+        "${gpu_group[@]}" -lpthread -lm -o "$out/sacredfire.exe" 2> "$link_log" \
         && linked=1 \
         || { if ((keep_going)); then echo "FAILED link ($link_log)" >&2; failures=$((failures + 1)); else exit 1; fi; }
     if ((keep_going)) && [[ ! -s $link_log ]]; then rm -f "$link_log"; fi
@@ -260,6 +267,52 @@ if ((run_tests)); then
     echo "tests: $count run, $failed failed"
     failures=$((failures + failed))
     ((keep_going || failed == 0)) || exit 1
+
+    # The existing tests of build.sh --test, built the same way (T1): the runtime tests link the
+    # runtime objects (without probe.o and vulkan_smoke.o, which have main) and the GPU library.
+    # BB_TEST_ONLY=<name> (e.g. test_sema) builds and runs just that one.
+    runtime_objects=()
+    for object in "${common_objects[@]}"; do
+        case $(basename -- "$object") in probe.o|vulkan_smoke.o) ;; *) runtime_objects+=("$object") ;; esac
+    done
+    read -r -a sdl_cflags <<< "$(pkg-config --cflags vulkan sdl3)"
+    gpu_group=()
+    t1_failed=0
+    t1_count=0
+    for name in test_pad test_runtime test_file_mods test_sema test_content test_eventflag; do
+        [[ -z ${BB_TEST_ONLY:-} || ${BB_TEST_ONLY} == "$name" ]] || continue
+        t1_count=$((t1_count + 1))
+        exe=$out/$name.exe
+        case $name in
+            test_pad) inputs=("${sdl_cflags[@]}" tests/test_pad.c "$out/libpf.a" $(pkg-config --libs vulkan sdl3)) ;;
+            test_file_mods) inputs=(tests/test_file_mods.c "$out/libpf.a") ;;
+            test_content) inputs=(tests/test_content.c src/runtime_content.c "$out/libpf.a") ;;
+            *)  ((${#gpu_group[@]})) || gpu_link_inputs ;;
+        esac
+        test_log=/dev/stderr
+        if ((keep_going)); then test_log=$(census_log "tests/$name.c"); fi
+        case $name in
+            test_runtime|test_sema|test_eventflag)
+                # The test as C, then the C++ link (the GPU library is C++), as the exe.
+                build_test() {
+                    "$CC" "${cflags[@]}" -c "tests/$name.c" -o "$out/obj/$name.o" \
+                    && "$CXX" -O2 -g -gcodeview "${ldflags[@]}" "-Wl,--pdb=$out/$name.pdb" "$out/obj/$name.o" \
+                        "${runtime_objects[@]}" "$out/libpf.a" "$out/libatrac9.a" "${gpu_group[@]}" -lpthread -lm -o "$exe"
+                } ;;
+            *)  build_test() { "$CC" "${cflags[@]}" "${inputs[@]}" "${ldflags[@]}" "-Wl,--pdb=$out/$name.pdb" -lpthread -lm -o "$exe"; } ;;
+        esac
+        if build_test 2> "$test_log" \
+            && if ((keep_going)); then "$exe" >> "$test_log" 2>&1; else "$exe"; fi; then
+            echo "PASS $name"
+            if ((keep_going)); then rm -f "$test_log"; fi
+        else
+            echo "FAIL $name"
+            t1_failed=$((t1_failed + 1))
+        fi
+    done
+    echo "tests (build.sh set): $t1_count run, $t1_failed failed"
+    failures=$((failures + t1_failed))
+    ((keep_going || t1_failed == 0)) || exit 1
 fi
 
 # ---- Census (--keep-going) ---------------------------------------------------------------------
