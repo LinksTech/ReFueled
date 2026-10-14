@@ -3,8 +3,8 @@
 Verhaltensabweichung Linux: keine (alle Fix-Pakete einzeln geprüft, siehe deren Logs)
 
 Toolchain: MSYS2 (winget, C:\msys64), clang 23.1.3, cmake 4.4.4, ninja 1.13.2, Vulkan 1.4.363, SDL3 3.4.18,
-Python 3.14.8 – wie TOOLCHAIN.md §2. Zähl-Build `build-windows.sh --keep-going --test` (vorher: 83406d5~,
-Stand nach Welle A + DBG ungemergt), nachher `build-windows.sh --test` ohne `--keep-going` grün (170eddc).
+Python 3.14.8 – wie TOOLCHAIN.md §2. Zähl-Build `build-windows.sh --keep-going --test` (vorher: 096f350~,
+Stand nach Welle A + DBG ungemergt), nachher `build-windows.sh --test` ohne `--keep-going` grün (e4349b0).
 
 ## Fehler je Paket (Zähl-Build vorher → nachher)
 

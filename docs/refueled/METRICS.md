@@ -27,11 +27,11 @@ sched_*affinity, SCHED_IDLE, setpriority, prctl), pthread-np, getdents, ftw, dl,
 | Datum | Stand (Commit) | Kennzahl Linux-only | davon eigener Code | davon bbport-Zeilen in gpu/shadps4 | inkl. POSIX (Info) | Plattform-#if außerhalb src/platform | Bemerkung |
 |---|---|---|---|---|---|---|---|
 | 2026-10-12 | f1f7935 (Baseline) | **335** | 283 | 52 | 696 | 23 | Ausgangswert vor jeder Änderung |
-| 2026-10-13 | 1fa93bc (Welle 1) | **335** | 283 | 52 | 696 | 23 | Plattformschicht beider Plattformen fertig (K1, K2a, K4, K5a, K8, LH, R2/R3-Plattformteil); Aufrufer noch nicht umgestellt (braucht den Linux-Gesamtbuild in Nix) |
+| 2026-10-13 | 5d5ce76 (Welle 1) | **335** | 283 | 52 | 696 | 23 | Plattformschicht beider Plattformen fertig (K1, K2a, K4, K5a, K8, LH, R2/R3-Plattformteil); Aufrufer noch nicht umgestellt (braucht den Linux-Gesamtbuild in Nix) |
 | 2026-10-13 | Welle A (ohne CLANG64) | **27** | 13 | 14 | 358 | – | Aufrufer umgestellt (K2, K3, K5, R1, R2b, R4, R5a, S1, S2, S3, V1, V2, V3). Rest gewollt: userfaultfd (D13, unter `__linux__`), dma-buf-Vulkan-Enums (D12, übersetzen unter Windows, laufen nie), fdinfo-Statistik unter `__linux__`, ftruncate/condattr_setclock über die Gap-Schicht (F6), malloc.h-Fehlalarm |
-| 2026-10-13 | 13f1187 IF-10 (Rückweg D20) | **27** | 13 | 14 | 358 | – | unverändert: der Rückweg liegt ganz in src/platform (pf_exception_linux.c, pf_thread_linux.c) |
-| 2026-10-13 | 3150109 IF-11 | **27** | 13 | 14 | 358 | – | unverändert (nur Konstanten in pf_memory.h) |
-| 2026-10-13 | 170eddc Welle B (erster CLANG64-Build, exe gelinkt) | **27** | 13 | 14 | 358 | – | unverändert; Fixes nur Windows-Zweige, Gap, Build-Flags |
+| 2026-10-13 | 1b9b773 IF-10 (Rückweg D20) | **27** | 13 | 14 | 358 | – | unverändert: der Rückweg liegt ganz in src/platform (pf_exception_linux.c, pf_thread_linux.c) |
+| 2026-10-13 | 7c2c308 IF-11 | **27** | 13 | 14 | 358 | – | unverändert (nur Konstanten in pf_memory.h) |
+| 2026-10-13 | e4349b0 Welle B (erster CLANG64-Build, exe gelinkt) | **27** | 13 | 14 | 358 | – | unverändert; Fixes nur Windows-Zweige, Gap, Build-Flags |
 
 ## Baseline nach Kategorie (eigener Code / bbport-Zeilen)
 

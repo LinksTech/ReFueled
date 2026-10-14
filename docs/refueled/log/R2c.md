@@ -1,6 +1,6 @@
 # Paket R2c – runtime_file.c und runtime_savedata.c ohne Windows-Stub-Wände
 
-Verhaltensabweichung Linux: remove_stale_temps steigt bei DT_UNKNOWN per stat in Unterordner ab (D21 Nr. 5); stat-Fehlercodes seit 5799a43 wieder -errno
+Verhaltensabweichung Linux: remove_stale_temps steigt bei DT_UNKNOWN per stat in Unterordner ab (D21 Nr. 5); stat-Fehlercodes seit 1b6cb2b wieder -errno
 
 Stand 2026-10-13, ausgeführt von Sonnet, Prüfung und Commit durch Opus. Ungebaut bis CLANG64 (nur gelesen und gegen die Header geprüft).
 Geändert: `src/runtime_file.c`, `src/runtime_savedata.c`, dieses Log. "neu"-Zeilen = Stand im Worktree.

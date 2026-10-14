@@ -183,10 +183,10 @@ Plattformtests) ist vorbereitet und wird aktiv, sobald das GitHub-Repo existiert
 Linux-Prüfpakete haben in TASKS.md den Status `deferred-ci` und blockieren nichts.
 
 ### D20 Linux-Thread-Dump per Abtastung statt SIGUSR2 – **aufgehoben 2026-10-13 (IF-10)**
-**War:** Seit K3 (dec5cdc) installierte der Loader keinen SIGUSR2-Handler mehr; der Watchdog las
+**War:** Seit K3 (1675a75) installierte der Loader keinen SIGUSR2-Handler mehr; der Watchdog las
 jeden Thread über `pf_thread_sample` (SIGRTMIN+2, synchron) aus. Folge unter Linux: `kill -USR2`
 beendete den Prozess, statt einen Dump zu drucken ("Profiling ohne perf" entfiel). Zusätzlich hatte
-R1 (33f1dbe) den Opt-in-Sampler `BB_SAMPLE_THREAD` von SIGPROF ohne Warten auf denselben
+R1 (5f68dbc) den Opt-in-Sampler `BB_SAMPLE_THREAD` von SIGPROF ohne Warten auf denselben
 synchronen SIGRTMIN+2-Weg gelegt (im Paket-Log R1 begründet, aber nicht als Entscheidung geführt).
 **Jetzt (Freigabe Projektleitung 2026-10-13, Rückweg):** Linux wieder wie Upstream.
 - `pf_dump_signal_install(dump, user)` (pf_exception.h): Linux installiert den alten

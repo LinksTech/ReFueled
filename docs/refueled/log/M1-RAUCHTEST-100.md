@@ -2,7 +2,7 @@
 
 **Kein M1-Nachweis für 1.21.** Spielordner hat weiterhin nur 1.00 (`game_check.py`: missing_update,
 APP_VER 01.00). Lauf nach Vorgabe Projektleitung als Rauchtest: `BB_SKIP_GAME_CHECK=1`, alle Patches aus
-(leeres Patch-Verzeichnis, "Patches: 0 writes"), sacredfire.exe von a35f959 (CLANG64), `run-windows.sh`,
+(leeres Patch-Verzeichnis, "Patches: 0 writes"), sacredfire.exe von 8e50911 (CLANG64), `run-windows.sh`,
 Daten/Ausgaben unter `C:\CTR Reload\tmp\refueled\M1R` (danach gelöscht). Ausgeführt und ausgewertet von Opus.
 Nicht über M1 hinaus debuggt.
 

@@ -1,6 +1,6 @@
 # Vorstudie RZ: Red-Zone-Schutz des Gastcodes unter Windows
 
-Stand 2026-10-13, Worktree `C:\nitro-ps4-wt\RZ` (Branch `refueled/pkg/RZ` ab e45c654). Nur Doku, kein Code.
+Stand 2026-10-13, Worktree `C:\nitro-ps4-wt\RZ` (Branch `refueled/pkg/RZ` ab 07e3d58). Nur Doku, kein Code.
 Bezug: ARCHITECTURE.md D17 (Freigabe 2026-10-13: Schalter `BB_REDZONE=0/1`, fertig vor M3, ab M2 wird jeder
 unerklärliche Absturz zuerst mit RZ an/aus getestet), U2-SIGNALE-THREADS.md §2, TASKS.md Zeile RZ.
 

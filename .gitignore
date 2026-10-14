@@ -69,3 +69,5 @@ build/
 *.log
 *.cache
 redzone.bin
+# refueled: local list of personal terms for publish_check.py (never committed)
+/.publish-private.txt

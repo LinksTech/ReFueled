@@ -31,10 +31,10 @@ Binär im Repo ist nur `gpu/third_party/fonts/DejaVuSans.ttf` (schon `binary` ge
 ## Abnahme
 
 ### 1. Linux (WSL, Python 3.12.3), `python3 -m unittest discover -s tests -p 'test_*.py'` im Worktree
-Vorher (unveränderter Stand fa8570c): `Ran 87 tests … OK (skipped=28)`. Nachher: `Ran 87 tests … OK (skipped=28)`. Die 28 Übersprungenen brauchen Linux-Binaries
+Vorher (unveränderter Stand ed08c6c): `Ran 87 tests … OK (skipped=28)`. Nachher: `Ran 87 tests … OK (skipped=28)`. Die 28 Übersprungenen brauchen Linux-Binaries
 (`test_runtime`, `test_probe`, `test_sema`, Teile von `test_content`, `test_pad`…), vorher wie nachher gleich.
 
-Byte-Vergleich der geänderten Schreibstellen unter Linux mit synthetischen Daten (`C:\CTR Reload\tmp\refueled\T2b\sites.py`; Stand fa8570c aus `git archive` gegen neuen Stand):
+Byte-Vergleich der geänderten Schreibstellen unter Linux mit synthetischen Daten (`C:\CTR Reload\tmp\refueled\T2b\sites.py`; Stand ed08c6c aus `git archive` gegen neuen Stand):
 
 ```
 libc-link.json        sha256 46670940fa3f394c  alt == neu (cmp bytegleich)
@@ -56,7 +56,7 @@ content.bin           sha256 40ef219b7e3f14ce  (unverändert)
 
 Zusatzlauf `sites.py` (Windows) zeigt die Wirkung auf die Zeilenenden:
 
-| Datei | Stand fa8570c (Windows) | neu (Windows) | Linux (alt und neu) |
+| Datei | Stand ed08c6c (Windows) | neu (Windows) | Linux (alt und neu) |
 |---|---|---|---|
 | libc-link.json | CR=29 / LF=29, sha 1c302e50f415c5ab | **CR=0** / LF=29, sha 46670940fa3f394c | CR=0, sha 46670940fa3f394c |
 | content-profile.json | CR=13 / LF=13, sha 0f5f07ebbb9009d4 | **CR=0** / LF=13, sha 5accded1138d2a52 | CR=0, sha 5accded1138d2a52 |

@@ -1,6 +1,6 @@
 # Audit F7: SysV-ABI an der Grenze Host/Gast
 
-Stand: Worktree F7 (Basis 753c2cf), nur lesen. Geprüft: `src/*.c|h`, `gpu/bbgpu.h`, `gpu/shim/**`,
+Stand: Worktree F7 (Basis 2c313ef), nur lesen. Geprüft: `src/*.c|h`, `gpu/bbgpu.h`, `gpu/shim/**`,
 `gpu/shadps4/core/libraries/**` (die bbport-geänderten Teile von shadps4). Gründe: Unter Linux ist
 `sysv_abi` die Standard-ABI, ein fehlendes Attribut fällt dort nie auf. Unter Windows (Win64:
 rcx/rdx/r8/r9, Shadow Space, xmm6–15 callee-saved) ist jede solche Stelle ein stiller Fehler.

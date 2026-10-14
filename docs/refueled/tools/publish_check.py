@@ -15,13 +15,14 @@ Rules (a hit blocks the push; nothing is rewritten, fix or allow by hand):
   size    binary blobs over 1 MiB
   game    blob identical to a file in the local game folder (--game-dir, default $BB_GAME_DIR)
   user    home-directory paths with a user name (C:\\Users\\x, /home/x, /c/Users/x)
-  private terms from the local environment (user name, git identity, $PUBLISH_CHECK_PRIVATE,
-          <git-common-dir>/publish_private.txt); read at run time so this file never contains them
+  private personal terms (first name, last name, user name, e-mail, ...) from the local list
+          .publish-private.txt in the repository root (in .gitignore), the local user name, the git
+          identity and $PUBLISH_CHECK_PRIVATE; read at run time so this file never contains them.
+          No person may be named in any document, log, comment, commit or code.
   email   e-mail addresses except placeholders and GitHub noreply addresses
   sdk     Sony SDK markers (confidential headers, SIE copyright lines)
   ident   commit author/committer e-mail outside the allowed placeholders
-Warnings (do not block): local machine paths without a user name, first names from the git
-identity or `warn:` lines. Allowed exceptions live in publish_allow.txt next to this file: one
+Warnings (do not block): local machine paths without a user name. Allowed exceptions live in publish_allow.txt next to this file: one
 `<rule> <path-glob>  # reason` per line, decided and reviewed by hand.
 
 Usage:
@@ -96,39 +97,36 @@ def git(*args, inp=None, check=True):
 
 
 def private_terms():
-    """Terms that must not appear: local user name, git identity, extra terms from the environment."""
-    terms, first = set(), set()
+    """Terms that must not appear anywhere (every one blocks): first name, last name, user name,
+    e-mail and other personal data from the local list, plus the local user name and git identity.
+    The local list is <repository root>/.publish-private.txt (in .gitignore, never committed), one
+    term per line, `#` starts a comment. Without that list the check fails closed."""
+    terms = set()
     for env in ('USERNAME', 'USER'):
         v = os.environ.get(env, '').strip()
         if len(v) >= 3:
             terms.add(v)
     name = git('config', 'user.name', check=False).decode(errors='replace').strip()
     email = git('config', 'user.email', check=False).decode(errors='replace').strip()
-    if name:
-        parts = name.split()
+    if name and name != 'ReFueled':
         terms.add(name)
-        terms.update(p for p in parts[1:] if len(p) >= 3)
-        if parts and len(parts[0]) >= 3:
-            first.add(parts[0])
+        terms.update(p for p in name.split() if len(p) >= 3)
     if email and not IDENT_OK.match(email):
         terms.add(email)
         terms.add(email.split('@')[0])
     for v in os.environ.get('PUBLISH_CHECK_PRIVATE', '').split(','):
         if len(v.strip()) >= 3:
             terms.add(v.strip())
-    # Local list, never committed: <git-common-dir>/publish_private.txt, one term per line,
-    # `warn:<term>` for terms that only warn (e.g. a first name used in plan documents).
-    local = Path(git('rev-parse', '--git-common-dir').decode().strip()) / 'publish_private.txt'
-    if local.exists():
-        for v in local.read_text(encoding='utf-8').splitlines():
-            v = v.strip()
-            if v.startswith('warn:') and len(v) >= 8:
-                first.add(v[5:].strip())
-            elif len(v) >= 3 and not v.startswith('#'):
-                terms.add(v)
-    first -= terms
-    mk = lambda ts: [re.compile(r'(?i)(?<![A-Za-z0-9])' + re.escape(t) + r'(?![A-Za-z0-9])') for t in sorted(ts)]
-    return mk(terms), mk(first)
+    common = Path(git('rev-parse', '--git-common-dir').decode().strip()).resolve()
+    local = common.parent / '.publish-private.txt'
+    if not local.exists():
+        sys.exit(f'publish_check: {local} is missing (local list of personal terms, one per line, '
+                 'never committed) - push blocked.')
+    for v in local.read_text(encoding='utf-8').splitlines():
+        v = v.strip()
+        if len(v) >= 3 and not v.startswith('#'):
+            terms.add(v)
+    return [re.compile(r'(?i)(?<![A-Za-z0-9])' + re.escape(t) + r'(?![A-Za-z0-9])') for t in sorted(terms)]
 
 
 def load_allow():
@@ -158,7 +156,7 @@ def exempt_refs(remote, upstream):
     return good
 
 
-def scan_text(text, private, first):
+def scan_text(text, private):
     """(rule, detail) hits and warnings for one text."""
     hits, warns = [], []
     for rx in USER_PATH_RES:
@@ -175,10 +173,6 @@ def scan_text(text, private, first):
         n = len(rx.findall(text))
         if n:
             hits.append(('private', f'{n}x private term (pattern #{private.index(rx)})'))
-    for rx in first:
-        n = len(rx.findall(text))
-        if n:
-            warns.append(('firstname', f'{n}x first name of the git identity'))
     locs = sorted({m.group(0) for m in LOCAL_PATH_RE.finditer(text)})
     if locs:
         warns.append(('localpath', ', '.join(locs[:4]) + (' ...' if len(locs) > 4 else '')))
@@ -225,7 +219,7 @@ def game_index(game_dir, sizes):
 
 def check(tips, remote, upstream, game_dir):
     allow = load_allow()
-    private, first = private_terms()
+    private = private_terms()
     refs = exempt_refs(remote, upstream)
     nots = ['--not', *refs] if refs else []
     commits = git('rev-list', *tips, *nots).decode().split()
@@ -255,7 +249,7 @@ def check(tips, remote, upstream, game_dir):
         for e in (ae, ce):
             if not IDENT_OK.match(e):
                 hits.append(('ident', f'commit {c[:12]}', e))
-        h, w = scan_text(msg, private, first)
+        h, w = scan_text(msg, private)
         hits += [(r, f'commit {c[:12]} message', d) for r, d in h]
         warns += [(r, f'commit {c[:12]} message', d) for r, d in w]
 
@@ -279,7 +273,7 @@ def check(tips, remote, upstream, game_dir):
         if binary and size > MiB:
             hit('size', path, f'binary blob {size / MiB:.1f} MiB')
         if data is not None and not binary:
-            h, w = scan_text(data.decode('utf-8', errors='replace'), private, first)
+            h, w = scan_text(data.decode('utf-8', errors='replace'), private)
             for r, d in h:
                 hit(r, path, d)
             warns += [(r, path, d) for r, d in w if not allowed(allow, r, path)]
