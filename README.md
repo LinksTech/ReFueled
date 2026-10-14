@@ -6,6 +6,11 @@ ReFueled is an experimental native Windows (x64) port of *Crash Team Racing Nitr
 [bbport](https://github.com/deadinside28/bloodborne_pc), which in turn uses parts of
 [shadPS4](https://github.com/shadps4-emu/shadPS4). Chain: SacredFire -> bbport -> shadPS4.
 
+> **Upstream no longer reachable:** since 2026-10-14 the SacredFire repository
+> (`T3CHNOLOG1C/SacredFire`) returns "not found" on GitHub; it was not renamed or moved. This
+> repository keeps SacredFire's full history up to its last public state (commit `f1f7935`, one docs commit after tag v0.2.1).
+> The credits below are unchanged.
+
 > **Status: very early, not playable.** The game does not start yet. Do not expect to be able
 > to play anything.
 

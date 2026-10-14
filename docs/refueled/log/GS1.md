@@ -23,4 +23,5 @@ geprüft von Opus.
 
 Verhaltensabweichung Linux: `scePthreadAttrGetstack` liefert jetzt Werte, wo vorher der unaufgelöste Import
 zum Stopp führte (nur wenn das Spiel die Funktion aufruft; gleich auf beiden Plattformen). Bestehende Abläufe
-unverändert. Entscheidung Opus: beibehalten, ARCHITECTURE.md D21 Nr. 11, Hinweis in linux-build.yml.
+unverändert. Entscheidung Opus: beibehalten, ARCHITECTURE.md D21 Nr. 11, Hinweis in linux-build.yml. Von der Projektleitung
+abgenommen (2026-10-14): fehlende Funktion ergänzt, kein Verhaltensbruch.

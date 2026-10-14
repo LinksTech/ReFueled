@@ -5,9 +5,11 @@
 material and personal data, and fails on any finding.
 
 What is checked: every commit and every blob reachable from the pushed tips that is not already
-public. "Already public" is everything reachable from the upstream refs (default: SacredFire's
-refs/remotes/origin/main) and from the target remote's own refs, i.e. history that is on GitHub
+public. "Already public" is everything reachable from the upstream refs (default: SacredFire's last
+known main, UPSTREAM_REFS) and from the target remote's own refs, i.e. history that is on GitHub
 anyway. On the first push to an empty or new remote that means our whole own history.
+SacredFire's repository is gone since 2026-10-14; its remote was renamed origin -> sacredfire-gone,
+and the commit of its last main (f1f7935) keeps the anchor should the remote ever be removed.
 
 Rules (a hit blocks the push; nothing is rewritten, fix or allow by hand):
   path    game files, game asset formats, images, build output, dumps, caches, logs, *.bin
@@ -42,6 +44,9 @@ from pathlib import Path, PurePosixPath
 
 HERE = Path(__file__).resolve().parent
 ALLOW_FILE = HERE / 'publish_allow.txt'
+# SacredFire's public history (missing refs are skipped, see exempt_refs).
+UPSTREAM_REFS = ['refs/remotes/sacredfire-gone/main', 'refs/remotes/origin/main',
+                 'f1f79350e31b02b410b1e9a2a8be1c144ebf06d4']
 ZERO = '0' * 40
 MiB = 1024 * 1024
 TEXT_SCAN_LIMIT = 32 * MiB
@@ -318,13 +323,13 @@ def main():
     ap.add_argument('--hook', nargs=2, metavar=('REMOTE', 'URL'))
     ap.add_argument('--range', metavar='TIP', action='append')
     ap.add_argument('--remote', help='target remote whose refs count as public (with --range)')
-    ap.add_argument('--upstream', action='append', help='public upstream ref (default refs/remotes/origin/main)')
+    ap.add_argument('--upstream', action='append', help=f'public upstream ref (default {" ".join(UPSTREAM_REFS)})')
     ap.add_argument('--game-dir', default=os.environ.get('BB_GAME_DIR'))
     ap.add_argument('--install', action='store_true')
     a = ap.parse_args()
     if a.install:
         return install()
-    upstream = a.upstream or ['refs/remotes/origin/main']
+    upstream = a.upstream or UPSTREAM_REFS
     if a.hook:
         remote = a.hook[0]
         tips = []
