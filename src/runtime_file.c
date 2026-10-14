@@ -96,11 +96,200 @@ void runtime_file_unmount(const char *guest) {
     }
     pthread_mutex_unlock(&lock);
 }
+static void free_listing(Listing *l) { if (l) { free(l->names); free(l->offsets); free(l->types); free(l); } }
 static char user_root[512]="user";
 const char *runtime_file_user_dir(void) { return user_root; }
+
+/* refueled: virtual mod overlay (docs/refueled/MODLOADER.md section 3). BB_MOD_MANIFEST names a
+ * manifest written by scripts/mods.py --manifest: "# refueled mod manifest 1", then one line per
+ * file "<path relative to /app0>\t<host path>". /app0 and /hostapp paths found in the index open
+ * the mod file; everything else falls through to the game folder; directory listings are the union.
+ * Not set (Linux, which keeps the link tree): overlay_count stays 0 and nothing below acts. */
+typedef struct { char *guest, *host; } OverlayFile;
+static OverlayFile *overlay;
+static size_t overlay_count;
+static char app0_host[512];
+static int overlay_compare(const void *a,const void *b) {
+    return strcmp(((const OverlayFile *)a)->guest,((const OverlayFile *)b)->guest);
+}
+static const OverlayFile *overlay_find(const char *rel) {
+    const OverlayFile key={(char *)rel,NULL};
+    return overlay_count ? bsearch(&key,overlay,overlay_count,sizeof(key),overlay_compare) : NULL;
+}
+static void overlay_fail(const char *file,size_t line,const char *why) {
+    if (line) fprintf(stderr,"Runtime: mod manifest %s, line %zu: %s\n",file,line,why);
+    else fprintf(stderr,"Runtime: mod manifest %s: %s\n",file,why);
+    exit(1);
+}
+static void overlay_oom(void) { fputs("Out of memory reading the mod manifest\n",stderr); exit(1); }
+static void overlay_load(const char *file) {
+    for (size_t i=0;i<overlay_count;++i) { free(overlay[i].guest); free(overlay[i].host); }
+    free(overlay); overlay=NULL; overlay_count=0;
+    if (!file || !*file) return;
+    FILE *f=fopen(file,"rb");
+    if (!f) { fprintf(stderr,"Runtime: cannot open mod manifest %s (%s)\n",file,strerror(errno)); exit(1); }
+    size_t cap=65536,length=0;
+    char *data=malloc(cap);
+    if (!data) overlay_oom();
+    for (;;) {
+        size_t n=fread(data+length,1,cap-length-1,f);
+        length+=n;
+        if (n==0) break;
+        if (length+1>=cap) { cap*=2; data=realloc(data,cap); if (!data) overlay_oom(); }
+    }
+    int read_error=ferror(f);
+    fclose(f);
+    if (read_error) overlay_fail(file,0,"read error");
+    data[length]=0;
+    size_t line_number=0,capacity=0;
+    for (char *line=data;*line;) {
+        char *end=strchr(line,'\n'), *next;
+        if (end) { *end=0; next=end+1; } else next=line+strlen(line);
+        size_t n=strlen(line);
+        if (n && line[n-1]=='\r') line[--n]=0;
+        ++line_number;
+        if (line_number==1) {
+            if (strcmp(line,"# refueled mod manifest 1")) overlay_fail(file,1,"first line must be \"# refueled mod manifest 1\"");
+        } else if (n && line[0]!='#') {
+            char *tab=strchr(line,'\t');
+            if (!tab) overlay_fail(file,line_number,"no tab between guest path and host path");
+            *tab=0;
+            const char *guest=line, *host=tab+1;
+            if (!*host || strchr(host,'\t')) overlay_fail(file,line_number,"empty host path or extra tab");
+            if (!*guest || guest[0]=='/') overlay_fail(file,line_number,"guest path empty or absolute");
+            for (const char *p=guest;;) {
+                const char *slash=strchr(p,'/');
+                size_t len=slash ? (size_t)(slash-p) : strlen(p);
+                if (!len || (len==1 && p[0]=='.') || (len==2 && p[0]=='.' && p[1]=='.')) overlay_fail(file,line_number,"guest path has an empty, . or .. component");
+                if (!slash) break;
+                p=slash+1;
+            }
+            if (overlay_count==capacity) {
+                capacity=capacity ? capacity*2 : 256;
+                overlay=realloc(overlay,capacity*sizeof(*overlay));
+                if (!overlay) overlay_oom();
+            }
+            overlay[overlay_count].guest=strdup(guest);
+            overlay[overlay_count].host=strdup(host);
+            if (!overlay[overlay_count].guest || !overlay[overlay_count].host) overlay_oom();
+            ++overlay_count;
+        }
+        line=next;
+    }
+    free(data);
+    if (!line_number) overlay_fail(file,0,"empty file");
+    qsort(overlay,overlay_count,sizeof(*overlay),overlay_compare);
+    for (size_t i=0;i<overlay_count;++i) {
+        if (i && !strcmp(overlay[i].guest,overlay[i-1].guest)) overlay_fail(file,0,"the same guest path twice");
+        /* a file may not also be a directory of another file */
+        for (const char *slash=strchr(overlay[i].guest,'/');slash;slash=strchr(slash+1,'/')) {
+            char prefix[1024]; size_t len=(size_t)(slash-overlay[i].guest);
+            if (len>=sizeof(prefix)) continue;
+            memcpy(prefix,overlay[i].guest,len); prefix[len]=0;
+            if (overlay_find(prefix)) overlay_fail(file,0,"a path is both a file and a directory");
+        }
+    }
+    printf("Runtime: mod manifest %s: %zu files\n",file,overlay_count);
+}
+/* The path below /app0 or /hostapp, normalized ('/' separated, no empty or . components), as the
+ * manifest spells it; 0 when the guest path is somewhere else. ".." was rejected by translate. */
+static int overlay_key(const char *guest,char *rel,size_t size) {
+    char buffer[1024];
+    if (!guest || !*guest) return 0;
+    if (guest[0]!='/') snprintf(buffer,sizeof(buffer),"/app0/%s",guest);
+    else snprintf(buffer,sizeof(buffer),"%s",guest);
+    const char *p;
+    if (!strncmp(buffer,"/app0",5) && (!buffer[5] || buffer[5]=='/')) p=buffer+5;
+    else if (!strncmp(buffer,"/hostapp",8) && (!buffer[8] || buffer[8]=='/')) p=buffer+8;
+    else return 0;
+    size_t n=0;
+    while (*p) {
+        while (*p=='/') ++p;
+        if (!*p) break;
+        const char *end=strchr(p,'/');
+        size_t len=end ? (size_t)(end-p) : strlen(p);
+        if (len==1 && p[0]=='.') { p+=len; continue; }
+        if (n+len+2>size) return 0;
+        if (n) rel[n++]='/';
+        memcpy(rel+n,p,len); n+=len; p+=len;
+    }
+    rel[n]=0;
+    return 1;
+}
+/* A directory some mod file lies below. */
+static int overlay_is_dir(const char *rel) {
+    size_t len=strlen(rel);
+    for (size_t i=0;i<overlay_count;++i)
+        if (!strncmp(overlay[i].guest,rel,len) && (!len || overlay[i].guest[len]=='/')) return 1;
+    return 0;
+}
+/* A directory that exists only in the overlay has no host directory: the game folder stands in
+ * for the host side (stat, open), the listing comes from the overlay alone. */
+static int overlay_standin(const char *guest,char *path,size_t size) {
+    char rel[1024];
+    if (!overlay_count || !overlay_key(guest,rel,sizeof(rel)) || !overlay_is_dir(rel)) return 0;
+    snprintf(path,size,"%s",app0_host);
+    return 1;
+}
+/* The listing of the game folder (or NULL) united with the overlay's entries of `guest`'s directory;
+ * a name in both is listed once with the overlay's type. Takes over `game`. */
+static Listing *overlay_merge_dir(Listing *game,const char *guest) {
+    char rel[1024];
+    if (!overlay_count || !overlay_key(guest,rel,sizeof(rel))) return game;
+    size_t len=strlen(rel);
+    const char **names=malloc((overlay_count+1)*sizeof(*names));
+    size_t *lengths=malloc((overlay_count+1)*sizeof(*lengths));
+    unsigned char *types=malloc(overlay_count+1);
+    if (!names || !lengths || !types) { fputs("Out of memory listing directory\n",stderr); exit(1); }
+    size_t m=0;
+    for (size_t i=0;i<overlay_count;++i) {
+        const char *g=overlay[i].guest, *rest=g;
+        if (len) { if (strncmp(g,rel,len) || g[len]!='/') continue; rest=g+len+1; }
+        const char *slash=strchr(rest,'/');
+        size_t n=slash ? (size_t)(slash-rest) : strlen(rest);
+        if (m && lengths[m-1]==n && !memcmp(names[m-1],rest,n)) continue; /* siblings are contiguous */
+        names[m]=rest; lengths[m]=n; types[m]=slash ? 4 : 8; ++m;
+    }
+    size_t game_count=game ? game->count : 0, game_bytes=0, extra=0, extra_bytes=0;
+    if (game_count) { const char *last=game->names+game->offsets[game_count-1]; game_bytes=game->offsets[game_count-1]+strlen(last)+1; }
+    unsigned char *is_new=calloc(m+1,1);
+    if (!is_new) { fputs("Out of memory listing directory\n",stderr); exit(1); }
+    for (size_t j=0;j<m;++j) {
+        int found=0;
+        for (size_t k=0;k<game_count && !found;++k) {
+            const char *name=game->names+game->offsets[k];
+            if (!strncmp(name,names[j],lengths[j]) && !name[lengths[j]]) { game->types[k]=types[j]; found=1; }
+        }
+        if (!found) { is_new[j]=1; ++extra; extra_bytes+=lengths[j]+1; }
+    }
+    Listing *l=calloc(1,sizeof(*l));
+    if (l) {
+        l->count=game_count+extra;
+        l->names=malloc(game_bytes+extra_bytes+1);
+        l->offsets=malloc((l->count+1)*sizeof(size_t));
+        l->types=malloc(l->count+1);
+    }
+    if (!l || !l->names || !l->offsets || !l->types) { fputs("Out of memory listing directory\n",stderr); exit(1); }
+    if (game_count) {
+        memcpy(l->names,game->names,game_bytes);
+        memcpy(l->offsets,game->offsets,game_count*sizeof(size_t));
+        memcpy(l->types,game->types,game_count);
+    }
+    size_t at=game_count, bytes=game_bytes;
+    for (size_t j=0;j<m;++j) if (is_new[j]) {
+        memcpy(l->names+bytes,names[j],lengths[j]); l->names[bytes+lengths[j]]=0;
+        l->offsets[at]=bytes; l->types[at]=types[j];
+        bytes+=lengths[j]+1; ++at;
+    }
+    free_listing(game); free(names); free(lengths); free(types); free(is_new);
+    return l;
+}
+
 void runtime_file_configure(const char *app0,const char *user) {
     char path[600];
     snprintf(user_root,sizeof(user_root),"%s",user);
+    snprintf(app0_host,sizeof(app0_host),"%s",app0);
+    overlay_load(getenv("BB_MOD_MANIFEST")); /* refueled: unset or empty = no overlay (the Linux case) */
     runtime_file_mount("/app0",app0);
     runtime_file_mount("/hostapp",app0);
     const char *writable[]={"temp0","download0","data"};
@@ -112,6 +301,13 @@ void runtime_file_configure(const char *app0,const char *user) {
         runtime_file_mount(guest,path);
     }
 }
+/* refueled: ".." is also a component border next to a backslash where the host takes it as a
+ * separator (Windows). Elsewhere a backslash is an ordinary name character: unchanged. */
+#ifdef _WIN32
+#define PATH_SEP(c) ((c)=='/' || (c)=='\\')
+#else
+#define PATH_SEP(c) ((c)=='/')
+#endif
 /* Resolve a guest path to a host path; returns 0 or a host errno. */
 static int translate(const char *guest,char *out,size_t size) {
     if (!guest || !*guest) return ENOENT;
@@ -119,17 +315,24 @@ static int translate(const char *guest,char *out,size_t size) {
     if (guest[0]!='/') snprintf(buffer,sizeof(buffer),"/app0/%s",guest);
     else snprintf(buffer,sizeof(buffer),"%s",guest);
     for (const char *p=buffer;(p=strstr(p,".."));p+=2)
-        if ((p==buffer || p[-1]=='/') && (p[2]==0 || p[2]=='/')) return EACCES;
-    pthread_mutex_lock(&lock);
-    size_t best=0; const Mount *m=NULL;
-    for (size_t i=0;i<mount_count;++i) {
-        size_t n=strlen(mounts[i].guest);
-        if (!strncmp(buffer,mounts[i].guest,n) && (buffer[n]=='/' || !buffer[n]) && n>best) { best=n; m=&mounts[i]; }
+        if ((p==buffer || PATH_SEP(p[-1])) && (p[2]==0 || PATH_SEP(p[2]))) return EACCES;
+    int result=0, overlaid=0;
+    if (overlay_count) { /* refueled: a mod file found in the overlay index replaces the game folder's */
+        char rel[1024];
+        const OverlayFile *hit=overlay_key(buffer,rel,sizeof(rel)) ? overlay_find(rel) : NULL;
+        if (hit) { overlaid=1; if ((size_t)snprintf(out,size,"%s",hit->host)>=size) result=ENAMETOOLONG; }
     }
-    int result=0;
-    if (!m) result=ENOENT;
-    else if ((size_t)snprintf(out,size,"%s%s",m->host,buffer+best)>=size) result=ENAMETOOLONG;
-    pthread_mutex_unlock(&lock);
+    if (!overlaid) {
+        pthread_mutex_lock(&lock);
+        size_t best=0; const Mount *m=NULL;
+        for (size_t i=0;i<mount_count;++i) {
+            size_t n=strlen(mounts[i].guest);
+            if (!strncmp(buffer,mounts[i].guest,n) && (buffer[n]=='/' || !buffer[n]) && n>best) { best=n; m=&mounts[i]; }
+        }
+        if (!m) result=ENOENT;
+        else if ((size_t)snprintf(out,size,"%s%s",m->host,buffer+best)>=size) result=ENAMETOOLONG;
+        pthread_mutex_unlock(&lock);
+    }
     if (result==ENOENT) fprintf(stderr,"Runtime: no mount for guest path %s\n",guest);
     /* BB_FILE_TRACE=1: every guest path the game opens, stats or checks (mods, missing files). */
     static int trace=-1;
@@ -183,7 +386,6 @@ static int host_flags(int flags) {
     if (flags&0x20000) r|=O_DIRECTORY;
     return r|O_CLOEXEC;
 }
-static void free_listing(Listing *l) { if (l) { free(l->names); free(l->offsets); free(l->types); free(l); } }
 static Listing *list_directory(const char *path) {
     DIR *d=opendir(path);
     if (!d) return NULL;
@@ -322,6 +524,7 @@ static int64_t do_open(const char *guest,int flags,int mode) {
     int e=translate(guest,path,sizeof(path));
     if (e) return -e;
     char *commit=NULL, *temp=NULL, current[1024];
+    int standin=0; /* refueled: a directory only the mod overlay has */
     snprintf(current,sizeof(current),"%s",path);
     if (save_path(guest)) current_copy(current,sizeof(current),0);
     int host;
@@ -334,6 +537,10 @@ static int64_t do_open(const char *guest,int flags,int mode) {
             host=open(current,host_flags(flags),mode ? mode : 0644);
             snprintf(path,sizeof(path),"%s",current); // the directory listing below uses it
         }
+        if (host<0 && errno==ENOENT && overlay_standin(guest,current,sizeof(current))) {
+            host=open(current,O_RDONLY|O_DIRECTORY|O_CLOEXEC);
+            standin=host>=0;
+        }
     }
     if (save_trace() && save_path(guest))
         printf("Save trace: open(%s, flags 0x%x) -> host %d%s%s\n",guest,flags,host,temp ? ", copy " : "",temp ? temp : "");
@@ -344,7 +551,10 @@ static int64_t do_open(const char *guest,int flags,int mode) {
     }
     PfStat s={0}; /* refueled: zeroed (was uninitialised when fstat failed; only the audio trace reads it) */
     Listing *dir=NULL;
-    if (!pf_fs_fstat(host,&s) && S_ISDIR(s.mode)) dir=list_directory(path);
+    if (!pf_fs_fstat(host,&s) && S_ISDIR(s.mode)) {
+        dir=standin ? NULL : list_directory(path);
+        if (overlay_count) dir=overlay_merge_dir(dir,guest);
+    }
     pthread_mutex_lock(&lock);
     int fd=-1;
     for (int i=3;i<MAX_FILES;++i) if (!files[i].used) { fd=i; break; }
@@ -503,6 +713,7 @@ static int64_t do_stat(const char *guest,GuestStat *out) {
     if (save_path(guest)) current_copy(path,sizeof(path),0);
     if (!out) return -EFAULT;
     int r=pf_fs_stat(path,&s); /* 0 or PF_E* (PF_ENOENT == -ENOENT) */
+    if (r==-ENOENT && overlay_standin(guest,path,sizeof(path))) r=pf_fs_stat(path,&s);
     if (r==-ENOENT && !save_path(guest) && fix_case(path)) r=pf_fs_stat(path,&s);
     if (save_trace() && save_path(guest)) printf("Save trace: stat(%s) -> %d, %lld bytes\n",guest,r,r ? -1LL : (long long)s.size);
     if (r) return r;
@@ -578,6 +789,7 @@ static int64_t do_access(const char *guest,int mode) {
     if (e) return -e;
     if (save_path(guest)) current_copy(path,sizeof(path),0);
     int r=access(path,mode&7) ? -errno : 0;
+    if (r==-ENOENT && overlay_standin(guest,path,sizeof(path))) r=access(path,mode&7) ? -errno : 0;
     if (r==-ENOENT && !save_path(guest) && fix_case(path)) r=access(path,mode&7) ? -errno : 0;
     return r;
 }

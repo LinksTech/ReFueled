@@ -117,8 +117,9 @@ def expand(directory):
         directory.mkdir(exist_ok=True)
 
 
-def build_overlay(game, out, mods):
-    game = Path(game).resolve(strict=True)
+def collect_replacements(mods):
+    """The selection shared by the link tree and the manifest: (game path, source) of every mod
+    file in load order (a later mod wins), with the conflict and count messages on stderr."""
     replacements = []
     owners = {}
     for name, root in mods:
@@ -131,6 +132,72 @@ def build_overlay(game, out, mods):
             replacements.append((relative, source))
             count += 1
         print(f'Mods: {name}: {count} files', file=sys.stderr)
+    return replacements
+
+
+MANIFEST_HEADER = '# refueled mod manifest 1'
+
+
+def manifest_entries(game, replacements):
+    """(entries, replaced, added): `entries` maps the guest path (relative to /app0, '/' separated)
+    to the absolute host path of the mod file; the last mod for a path wins. The walk is the one
+    of build_overlay on names instead of links: each component takes the game's spelling when it
+    exists in another case, otherwise the spelling of the first mod that created it."""
+    game = Path(game).resolve(strict=True)
+    entries = {}
+    created = {}    # (spelled parent, casefolded name) -> (name, is_dir): only mods have it
+    replaced = added = 0
+
+    def lookup(spelled, part):
+        """(name, is_dir or None, in_game) of `part` inside the overlay folder `spelled`."""
+        parent = game.joinpath(*spelled)
+        found = child(parent, part) if parent.is_dir() else None
+        if found is not None and found.exists():
+            return found.name, found.is_dir(), True
+        key = ('/'.join(spelled), part.casefold())
+        if key in created:
+            return (*created[key], False)
+        return part, None, False
+
+    for relative, source in replacements:
+        spelled = []
+        for part in relative.parts[:-1]:
+            name, is_dir, _ = lookup(spelled, part)
+            if is_dir is False:
+                raise ValueError(f'File/directory conflict at {name}')
+            if is_dir is None:
+                created[('/'.join(spelled), part.casefold())] = (name, True)
+            spelled.append(name)
+        name, is_dir, in_game = lookup(spelled, relative.parts[-1])
+        if is_dir:
+            raise ValueError(f'File/directory conflict: {relative}')
+        guest = '/'.join([*spelled, name])
+        if guest not in entries:
+            if in_game:
+                replaced += 1
+            else:
+                added += 1
+                created[('/'.join(spelled), name.casefold())] = (name, False)
+        entries[guest] = str(source)
+    return entries, replaced, added
+
+
+def write_manifest(game, mods, target):
+    """Write the manifest of the selection (format: docs/refueled/MODLOADER.md); no links."""
+    entries, replaced, added = manifest_entries(game, collect_replacements(mods))
+    lines = [MANIFEST_HEADER]
+    for guest in sorted(entries):
+        for text in (guest, entries[guest]):
+            if '\t' in text or '\n' in text or '\r' in text:
+                raise ValueError(f'Tab or line break in a path (not possible in a manifest): {text!r}')
+        lines.append(f'{guest}\t{entries[guest]}')
+    print(f'Mods: {replaced} game files replaced, {added} added', file=sys.stderr)
+    Path(target).write_bytes(('\n'.join(lines) + '\n').encode('utf-8'))
+
+
+def build_overlay(game, out, mods):
+    game = Path(game).resolve(strict=True)
+    replacements = collect_replacements(mods)
     if not replacements:
         return game
     out = Path(out).resolve()
@@ -169,6 +236,7 @@ def main():
     parser.add_argument('--mods-dir', required=True, type=Path)
     parser.add_argument('--config', type=Path)
     parser.add_argument('--enabled', choices=('0', '1'), default='1')
+    parser.add_argument('--manifest', type=Path, help='write the selection as a manifest file (no links, no overlay folder)')
     args = parser.parse_args()
     layers = []
     if args.enabled == '1':
@@ -182,7 +250,10 @@ def main():
         else:
             for name in selected(args.mods_dir, args.config):
                 layers.append((name, args.mods_dir / name))
-    print(build_overlay(args.game, args.out, layers))
+    if args.manifest:
+        write_manifest(args.game, layers, args.manifest)
+    else:
+        print(build_overlay(args.game, args.out, layers))
 
 
 if __name__ == '__main__':
