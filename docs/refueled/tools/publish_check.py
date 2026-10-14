@@ -21,7 +21,8 @@ Rules (a hit blocks the push; nothing is rewritten, fix or allow by hand):
           No person may be named in any document, log, comment, commit or code.
   email   e-mail addresses except placeholders and GitHub noreply addresses
   sdk     Sony SDK markers (confidential headers, SIE copyright lines)
-  ident   commit author/committer e-mail outside the allowed placeholders
+  ident   commit author/committer e-mail outside the allowed placeholders; author and committer
+          names are checked against the private terms as well
 Warnings (do not block): local machine paths without a user name. Allowed exceptions live in publish_allow.txt next to this file: one
 `<rule> <path-glob>  # reason` per line, decided and reviewed by hand.
 
@@ -244,11 +245,13 @@ def check(tips, remote, upstream, game_dir):
 
     # commit metadata and messages
     for c in commits:
-        meta = git('show', '-s', '--format=%ae%n%ce%n%B', c).decode(errors='replace')
-        ae, ce, msg = meta.split('\n', 2)
+        meta = git('show', '-s', '--format=%ae%n%ce%n%an%n%cn%n%B', c).decode(errors='replace')
+        ae, ce, an, cn, msg = meta.split('\n', 4)
         for e in (ae, ce):
             if not IDENT_OK.match(e):
                 hits.append(('ident', f'commit {c[:12]}', e))
+        h, _w = scan_text(f'{an}\n{cn}', private)
+        hits += [(r, f'commit {c[:12]} author/committer name', d) for r, d in h]
         h, w = scan_text(msg, private)
         hits += [(r, f'commit {c[:12]} message', d) for r, d in h]
         warns += [(r, f'commit {c[:12]} message', d) for r, d in w]
