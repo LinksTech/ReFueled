@@ -30,6 +30,7 @@ typedef void *(ABI *TlsAddress)(const uint64_t *);
 typedef void *(ABI *ThreadSelf)(void);
 typedef int32_t (ABI *ThreadGetAttr)(void *,void **);
 typedef int32_t (ABI *ThreadAffinity)(void **,uint64_t *);
+typedef int32_t (ABI *AttrStack)(void **,void **,uint64_t *);
 static void *main_identity;
 static void *tls_worker(void *unused) {
     (void)unused;
@@ -65,6 +66,15 @@ static void libc_support(void) {
     assert(affinity(&attr,&mask)==0 && mask==0x7f);
     assert((uint32_t)get(&mask,&attr)==0x80020003);
     assert((uint32_t)affinity(&attr,NULL)==0x80020016);
+    /* scePthreadAttrGetstack: a thread's attributes carry its real stack, fresh ones none. */
+    AttrStack stack=GET(AttrStack,"-quPa4SEJUw#libkernel");
+    void *stack_addr=NULL; uint64_t stack_size=0;
+    assert(stack(&attr,&stack_addr,&stack_size)==0 && stack_addr && stack_size);
+    assert((uintptr_t)&mask>(uintptr_t)stack_addr && (uintptr_t)&mask<(uintptr_t)stack_addr+stack_size);
+    assert((uint32_t)stack(&attr,NULL,&stack_size)==0x80020016);
+    assert(destroy(&attr)==0 && !attr);
+    assert(init(&attr)==0 && stack(&attr,&stack_addr,&stack_size)==0);
+    assert(!stack_addr && stack_size==1024*1024);
     assert(destroy(&attr)==0 && !attr);
     assert((uint32_t)affinity(&attr,&mask)==0x80020016);
     uint64_t param[8]={64};

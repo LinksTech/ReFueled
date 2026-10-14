@@ -94,6 +94,9 @@ ungleich "keine" = Entscheidung Opus, Meldung an die Projektleitung im nächsten
 | WS1 | Aus AUD (audit/WIN-STUBS.md): `O_SYNC` fehlt unter MinGW, Gast-Flag 0x80 wird in runtime_file.c:177 still verworfen (Speichern ohne Durchschreiben je write; fsync/Savedata flushen weiter). Lösung prüfen (FILE_FLAG_WRITE_THROUGH über die Gap-Schicht oder fsync nach jedem write bei 0x80) | src/runtime_file.c, src/platform/pf_posix_gap_win32.* | M1 | S | S (O-Review) | done (ef7c1d6: _commit nach write/pwrite bei O_SYNC; test_posix_subset 254 grün) |
 | M1P | M1-Vorbereitung: aerolib.inl lokal statt Download (tools/gen_import_names.py holt sie sonst aus dem Netz; nur Symbolnamen, Auflösung per NID). Quelle: shadPS4 src/core/aerolib/aerolib.inl, Commit b4e7ae7, GPL-2.0-or-later, Herkunft im Dateikopf | third_party/shadps4-aerolib/aerolib.inl, run-windows.sh (`--aerolib`) | – | S | O | done (2d8f6c7) |
 | PUB | Veröffentlichung GitHub (ReFueled): README (englisch), SacredFire-README nach docs/, publish_check.py als Pre-Push-Hook (lokale Begriffsliste `.publish-private.txt`, nie versioniert), Historie einmal bereinigt (2026-10-14) | README.md, docs/SacredFire-README.md, docs/refueled/tools/publish_check.py, publish_allow.txt | – | S (README), O (Rest) | done (main gepusht) |
+| CI1 | Erster Linux-Lauf in CI: Test-Link pf_fs_linux.c für pad-test/file-mods-test | build.sh | – | O | done (log/CI1.md) |
+| PUB2 | Namensentfernung im letzten öffentlichen Commit (einmaliger force push, freigegeben), publish_check prüft auch Autor-/Committer-Namen | docs/refueled/tools/publish_check.py | PUB | O | done (log/PUB2.md) |
+| GS1 | `scePthreadAttrGetstack` (Stopp des 1.00-Rauchtests): echter Stack aus scePthreadAttrGet, sonst NULL + eingestellte Größe | src/runtime_thread.c, src/runtime.h, src/probe.c, tests/test_runtime.c | M1-Rauchtest | O | done (log/GS1.md) |
 
 ### Später / bei Bedarf
 | ID | Beschreibung | Abhängig von | Umfang | Modell | Status |

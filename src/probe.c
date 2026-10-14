@@ -746,6 +746,7 @@ int main(int argc, char **argv) {
     enum { MAIN_STACK=8*1024*1024 };
     unsigned char *stack=runtime_low_map(MAIN_STACK,PF_PROT_READ|PF_PROT_WRITE);
     if (!stack) fail("cannot allocate guest main stack");
+    runtime_thread_set_stack(stack,MAIN_STACK);
     pf_call_guest_on_stack(image+entry,(uint64_t)(uintptr_t)&params,(uint64_t)(uintptr_t)guest_exit,stack,stack+MAIN_STACK-64);
     fail("entry unexpectedly returned");
 }

@@ -28,6 +28,9 @@ typedef struct ThreadAttr {
     uint32_t magic;
     int detached, policy, prio, inherit;
     uint64_t stack, guard, affinity;
+    /* refueled: the stack a thread really runs on (lowest address, bytes) for
+     * scePthreadAttrGetstack; 0 in attributes not taken from a thread. */
+    uint64_t stack_addr, stack_bytes;
     struct ThreadAttr *next;
 } ThreadAttr;
 typedef struct GuestThread {
@@ -122,6 +125,11 @@ void runtime_thread_attach_main(void) {
     GuestThread *t=runtime_thread_current();
     snprintf(t->name,sizeof(t->name),"main");
 }
+/* refueled: the guest main thread runs on a stack of its own (probe.c), not on the host's. */
+void runtime_thread_set_stack(void *low,size_t size) {
+    GuestThread *t=runtime_thread_current();
+    t->attr.stack_addr=(uintptr_t)low; t->attr.stack_bytes=size;
+}
 static GuestThread *find_thread(void *handle) {
     GuestThread *found=NULL;
     pthread_mutex_lock(&lock);
@@ -168,6 +176,11 @@ static ABI int32_t attr_get(void *thread,ThreadAttr **out) {
     ThreadAttr *next=a->next;
     *a=t->attr; a->magic=ATTR_MAGIC; a->next=next;
     a->detached=t->detached;
+    if (!a->stack_addr && t==current) {
+        /* Host threads (tests, HLE helpers) run on the stack the host gave them. */
+        void *base=NULL; size_t size=0;
+        if (!pf_thread_get_stack(&base,&size)) { a->stack_addr=(uintptr_t)base; a->stack_bytes=size; }
+    }
     return 0;
 }
 static ABI int32_t attr_set_stack(ThreadAttr **slot,uint64_t size) {
@@ -179,6 +192,15 @@ static ABI int32_t attr_get_stack(ThreadAttr **slot,uint64_t *size) {
     ThreadAttr *a=find_attr(slot);
     if (!a || !size) return ERR(22);
     *size=a->stack; return 0;
+}
+/* refueled: scePthreadAttrGetstack. Attributes filled by scePthreadAttrGet report the thread's
+ * real stack; others report no address and the configured size (as shadPS4). */
+static ABI int32_t attr_get_stack_area(ThreadAttr **slot,void **addr,uint64_t *size) {
+    ThreadAttr *a=find_attr(slot);
+    if (!a || !addr || !size) return ERR(22);
+    *addr=(void *)(uintptr_t)a->stack_addr;
+    *size=a->stack_addr ? a->stack_bytes : a->stack;
+    return 0;
 }
 static ABI int32_t attr_set_detach(ThreadAttr **slot,int state) {
     ThreadAttr *a=find_attr(slot);
@@ -251,6 +273,7 @@ static int32_t create(GuestThread **out,ThreadAttr **attr_slot,GuestEntry entry,
     /* Stacks below 1 TiB as on PS4; guest code may pack stack addresses. */
     size_t stack_bytes=(size_t)stack+STACK_MARGIN;
     void *stack_memory=runtime_low_map(stack_bytes,PF_PROT_READ|PF_PROT_WRITE);
+    t->attr.stack_addr=(uintptr_t)stack_memory; t->attr.stack_bytes=stack_memory ? stack_bytes : 0;
     publish(t);
     /* Publish the handle before the thread can run and inspect itself. */
     *out=t;
@@ -369,6 +392,7 @@ uintptr_t runtime_thread_resolve(const char *name) {
         {"4+h9EzwKF4I#libkernel",attr_set_policy}, {"DzES9hQF4f4#libkernel",attr_set_param},
         {"3qxgM4ezETA#libkernel",attr_set_affinity}, {"eXbUSpEaTsA#libkernel",attr_set_inherit},
         {"JaRMy+QcpeU#libkernel",attr_get_detach}, {"-fA+7ZlGDQs#libkernel",attr_get_stack},
+        {"-quPa4SEJUw#libkernel",attr_get_stack_area},
         {"FXPWHNk8Of0#libkernel",attr_get_param}, {"El+cQ20DynU#libkernel",attr_set_guard},
         {"6UgtwV+0zb4#libkernel",thread_create}, {"onNY9Byn-W8#libkernel",thread_join},
         {"4qGrR6eoP9Y#libkernel",thread_detach}, {"3kg7rT0NQIs#libkernel",thread_exit},
