@@ -4,7 +4,7 @@ Werkzeug: `docs/refueled/tools/linux_hits.py` (aus `sf_inventory.py` der Bestand
 abgeleitet). Aufruf:
 
 ```
-python docs/refueled/tools/linux_hits.py --ref C:/nitro-ps4-ref/shadPS4-b4e7ae7 [--list] [--json out.json]
+python docs/refueled/tools/linux_hits.py --ref C:/ReFueled/ref/shadPS4-b4e7ae7 [--list] [--json out.json]
 ```
 
 **Kennzahl (Ziel 0):** Codezeilen mit Linux-only-Host-APIs außerhalb von `src/platform/`.

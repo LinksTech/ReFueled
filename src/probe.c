@@ -264,7 +264,7 @@ static ABI void trace_import(uint64_t index, uint64_t return_address, const uint
                  pf_thread_id(), names[index], n + 1, return_address - (uint64_t)(uintptr_t)image, saved[0], saved[1], saved[2]);
     pf_write_stderr_str(line);
 }
-/* Thunk template (generated and verified by gen_thunk.py / check_thunk.py in C:\CTR Reload\tmp\refueled\DBG).
+/* Thunk template (generated and verified by gen_thunk.py / check_thunk.py in C:\ReFueled\notes\scratch-2026-10\DBG).
  * It skips the red zone, saves rdi rsi rdx rcx r8 r9 rax r10 r11 and xmm0-7 on the stack (16-byte
  * aligned), calls trace_import(index, return address, saved block) and restores everything, then
  * jumps (not calls) to the target, so the callee sees the caller's stack and return address. */

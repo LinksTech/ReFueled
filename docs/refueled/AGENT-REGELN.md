@@ -1,6 +1,6 @@
 # ReFueled – Regeln für Paket-Agenten (verbindlich, Stand 2026-10-13)
 
-- Repo `C:\nitro-ps4-port` nur lesen. Arbeit nur im eigenen Worktree `C:\nitro-ps4-wt\<ID>`
+- Repo `C:\ReFueled\repo` nur lesen. Arbeit nur im eigenen Worktree `C:\ReFueled\wt\<ID>`
   (Branch `refueled/pkg/<ID>`, von Opus angelegt). Nur die im Auftrag genannten Dateien ändern.
   Header `src/platform/pf_*.h`, `src/runtime.h`, `gpu/bbgpu.h` gehören Opus: Bedarf melden, nicht ändern.
 - Nicht committen, kein `git config`, kein push, keine Remotes, nichts installieren, nichts
@@ -16,7 +16,7 @@
   (mit `/link /HIGHENTROPYVA:NO /DYNAMICBASE:NO`).
 - Spielordner `C:\CUSA13795`: nur lesen, nie verändern, nichts daraus kopieren, loggen oder committen.
   Nur benutzen, wenn der Auftrag es ausdrücklich sagt.
-- Temporäre Dateien nur unter `C:\CTR Reload\tmp\refueled\<ID>\`; TMP/TEMP gestarteter Programme dorthin.
+- Temporäre Dateien nur unter `C:\ReFueled\tmp\<ID>\`; TMP/TEMP gestarteter Programme dorthin.
 - Code und Kommentare englisch, Doku unter `docs/refueled/` deutsch. Neue Dateien: SPDX
   `GPL-2.0-or-later` + `refueled:`-Kommentar. Änderungen in `gpu/shadps4/**` minimal und jede Zeile
   mit `refueled:` markiert (D14); vom Upstream übernommene Teile mit Herkunft.

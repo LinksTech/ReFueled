@@ -6,7 +6,7 @@ Worktrees prüfen, nicht nacheinander.
 ## 1. Erste Minute (Opus)
 1. Lauf mit `BB_CRASH_DETAIL=1` (unter Windows Standard in run-windows.sh, Paket DBG) und, wenn der
    Absturz in oder nach einem Import liegt, `BB_TRACE_IMPORTS=<Teilname>`. Log nach
-   `C:\CTR Reload\tmp\refueled\M2\<Lauf-ID>\` (keine Spieldaten, nur der Loader-Bericht).
+   `C:\ReFueled\tmp\M2\<Lauf-ID>\` (keine Spieldaten, nur der Loader-Bericht).
 2. **Pflicht-A/B Red Zone (D17):** derselbe Lauf mit `BB_REDZONE=0` und `=1`, bevor andere
    Fehlersuche beginnt. Ändert sich das Bild, ist RZ Hypothese 1.
 3. Einordnen nach dem Crash-Detail-Bericht: Gast-RIP + Image-Offset, Fault-Adresse und Zugriffsart,
@@ -19,7 +19,7 @@ Worktrees prüfen, nicht nacheinander.
   `sysv_abi`, xmm6–15/rdi/rsi), 3. Adresse ≥ 1 TiB im Gast (Low-Heap-Lücke, LOWHEAP.md),
   4. Speicher/Platzhalter (Split, Schutz, transient fault, K1), 5. Stack (TEB-Grenzen, `__chkstk`,
   Guard-Seite, D7), 6. POSIX-Gap (Fehlercode/Pfad, F6), 7. Red Zone (D17).
-- Je Hypothese ein Worktree `C:\nitro-ps4-wt\M2-<Lauf-ID>-H<n>` auf Branch
+- Je Hypothese ein Worktree `C:\ReFueled\wt\M2-<Lauf-ID>-H<n>` auf Branch
   `refueled/m2/<Lauf-ID>-h<n>` vom aktuellen `refueled/windows`; je ein Sonnet-Agent, **alle in
   derselben Nachricht gestartet**. Auftrag je Agent: die Hypothese, genau ein Versuch (Instrumentierung
   oder Minimaländerung), Abbruch nach höchstens 2 Läufen, Ergebnis "bestätigt / widerlegt /

@@ -8,7 +8,7 @@ vollständigen Build kurzer Bericht mit Anzahl Fehler je Paket vorher/nachher.
 
 ## 1. Toolchain-Check (Opus, wenige Minuten)
 In der CLANG64-Shell (`C:\msys64\usr\bin\bash.exe -lc` mit `MSYSTEM=CLANG64`, TMP/TEMP auf
-`C:\CTR Reload\tmp\refueled\B`): `clang --version`, `pkg-config --modversion vulkan sdl3`,
+`C:\ReFueled\tmp\B`): `clang --version`, `pkg-config --modversion vulkan sdl3`,
 `cmake --version`, `ninja --version`, `llvm-windres --version`, `python3 --version`. Fehlendes
 Paket → der Projektleitung melden, Rest läuft weiter.
 
@@ -23,7 +23,7 @@ Headers, nicht bei der Einheit, die ihn einbindet.
 
 ## 3. Verteilung (parallel, Priorität kritischer Pfad)
 Je Besitzer-Gruppe mit Fehlern ein Sonnet-Agent, alle gleichzeitig gestartet, jeder in seinem
-Worktree `C:\nitro-ps4-wt\<ID>-B` auf Branch `wt/<ID>-B` und nur mit seinen Dateien laut
+Worktree `C:\ReFueled\wt\<ID>-B` auf Branch `wt/<ID>-B` und nur mit seinen Dateien laut
 owners.txt. Er bekommt seinen Abschnitt aus summary.md, repariert, übersetzt seine Einheiten mit
 `build-windows.sh --keep-going` neu, bis seine Gruppe 0 Fehler hat, und liefert Diff + Log mit
 alt↔neu-Tabelle für jede Linux-wirksame Zeile. Startreihenfolge innerhalb derselben Nachricht:

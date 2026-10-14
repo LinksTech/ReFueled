@@ -26,11 +26,11 @@ Die Angaben zur Windows-Spalte stammen aus dem Wissen über UCRT/MinGW-w64; bele
 ## 2. Methode und Suchmuster
 
 Geprüft wurden `src/*.c`, `src/*.h` (7454 Zeilen), `gpu/shim/**`, `gpu/bbgpu.h` und die gegenüber
-`C:\nitro-ps4-ref\shadPS4-b4e7ae7\src` geänderten oder neuen Dateien unter `gpu/shadps4` (118 Dateien; von diesen nur die
+`C:\ReFueled\ref\shadPS4-b4e7ae7\src` geänderten oder neuen Dateien unter `gpu/shadps4` (118 Dateien; von diesen nur die
 **hinzugefügten Zeilen** je `diff -U0`, ohne Zeilenende-Unterschiede, bei neuen Dateien die ganze Datei).
 Der unveränderte Upstream-Code (G2/G3) wurde nur stichprobenartig auf Gast-ABI-Typen geprüft (Abschnitt 6).
 
-Suchmuster (Python-Skripte unter `C:\CTR Reload\tmp\refueled\F10\`: `scan.py`, `added.py`, `diff.sh`; nicht im Repo):
+Suchmuster (Python-Skripte unter `C:\ReFueled\notes\scratch-2026-10\F10\`: `scan.py`, `added.py`, `diff.sh`; nicht im Repo):
 
 | Kürzel | Muster |
 |---|---|

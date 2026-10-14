@@ -4,8 +4,8 @@ Stand 2026-10-13, Worktree `C:\nitro-ps4-wt\RZ` (Branch `refueled/pkg/RZ` ab 07e
 Bezug: ARCHITECTURE.md D17 (Freigabe 2026-10-13: Schalter `BB_REDZONE=0/1`, fertig vor M3, ab M2 wird jeder
 unerklärliche Absturz zuerst mit RZ an/aus getestet), U2-SIGNALE-THREADS.md §2, TASKS.md Zeile RZ.
 
-**Quellen und Kennzeichnung.** Referenzcode: `C:\nitro-ps4-ref\shadPS4` (Stand `0ae50a4b`, 2026-10-12, im Folgenden
-"main") und `C:\nitro-ps4-ref\shadPS4-b4e7ae7` (2026-09-24, "alt"). Windows-Verhalten ist mit Microsoft-Doku
+**Quellen und Kennzeichnung.** Referenzcode: `C:\ReFueled\ref\shadPS4` (Stand `0ae50a4b`, 2026-10-12, im Folgenden
+"main") und `C:\ReFueled\ref\shadPS4-b4e7ae7` (2026-09-24, "alt"). Windows-Verhalten ist mit Microsoft-Doku
 belegt (Name und Aussage in §5, abgerufen am 2026-10-13) oder als **[Vermutung]** bzw. **[Eigenwissen]** gekennzeichnet.
 Versuche auf Windows gab es nicht.
 

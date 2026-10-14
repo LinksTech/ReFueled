@@ -260,7 +260,7 @@ Dokumente unter `docs/refueled/` deutsch, Code und Kommentare englisch (wie der 
 
 ## 5. Arbeitsweise (für alle Agenten verbindlich)
 
-- Jedes Paket hat eigenen Worktree `C:\nitro-ps4-wt\<ID>` auf eigenem lokalen Branch
+- Jedes Paket hat eigenen Worktree `C:\ReFueled\wt\<ID>` auf eigenem lokalen Branch
   `refueled/pkg/<ID>` ab dem aktuellen `refueled/windows`.
 - Ein Paket ändert **nur** seine besessenen Dateien (TASKS.md). Braucht es eine andere Datei
   oder eine Schnittstellenänderung, gibt es das Paket mit Begründung an Opus zurück.
@@ -276,7 +276,7 @@ Dokumente unter `docs/refueled/` deutsch, Code und Kommentare englisch (wie der 
   zurückbauen) und wird der Projektleitung im nächsten Bericht gemeldet, nie nur im Log. Beibehaltene
   Abweichungen stehen zusätzlich im Kopf von `.github/workflows/linux-build.yml`.
 - Nach jedem Merge: `linux_hits.py` ausführen, Wert in METRICS.md eintragen.
-- Temporäre Dateien nur unter `C:\CTR Reload\tmp\` bzw. im Paket-Worktree unter `out/`.
+- Temporäre Dateien nur unter `C:\ReFueled\tmp\` bzw. im Paket-Worktree unter `out/`.
 - Fehler nicht wegimprovisieren: Ein festhängendes Paket meldet die Fehlermeldung wörtlich und
   geht an Opus zurück.
 

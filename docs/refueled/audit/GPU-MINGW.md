@@ -5,9 +5,9 @@ Stand 2026-10-13, Paket F5 (Teil 2). Rein statische Analyse des Worktree-Stands 
 Aussagen über Header und Compilerverhalten sind Vorhersagen und tragen den Vermerk "vermutlich"
 oder "prüfen", wo sie nicht aus dem Quelltext folgen.
 
-Methode: Skript `C:\CTR Reload\tmp\refueled\F5\scan.py` (Grep nach POSIX-/Linux-Includes, Aufrufen,
+Methode: Skript `C:\ReFueled\notes\scratch-2026-10\F5\scan.py` (Grep nach POSIX-/Linux-Includes, Aufrufen,
 Registernamen, `/proc`), danach von Hand durchgesehen. "Upstream" heißt: die Zeile steht textgleich
-(nach `strip`) in `C:\nitro-ps4-ref\shadPS4-b4e7ae7\src\<Pfad>`; "bbport" heißt: nicht in der
+(nach `strip`) in `C:\ReFueled\ref\shadPS4-b4e7ae7\src\<Pfad>`; "bbport" heißt: nicht in der
 Referenz (eigene Zeile oder ganz eigene Datei unter `gpu/shim`). Der Referenzbaum hat CRLF, der
 Worktree LF; das Skript vergleicht gestrippte Zeilen. Zeilennummern beziehen sich auf den Worktree.
 `getenv("BB_…")` (über 150 Stellen in bbport-Zeilen) ist portabel (UCRT) und steht nicht in den

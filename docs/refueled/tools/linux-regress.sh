@@ -5,12 +5,12 @@
 #
 #   linux-regress.sh <commit-or-branch> [--ref]
 #
-# Creates a detached git worktree of the repository at /mnt/c/nitro-ps4-port under
-# /mnt/c/nitro-ps4-wt/regress-<shorthash>, runs there
+# Creates a detached git worktree of the repository at /mnt/c/ReFueled/repo under
+# /mnt/c/ReFueled/wt/regress-<shorthash>, runs there
 #   1. build-test   : bash build.sh --test   (build.sh enters nix-shell shell.nix by itself)
 #   2. py-unittest  : python3 -m unittest discover -s tests -p 'test_*.py'   (as CONTRIBUTING.md / CI)
 #   3. shell-syntax : bash -n on the shell scripts CI checks
-# writes the full log to /mnt/c/nitro-ps4-wt/regress-logs/<date>-<shorthash>.log, prints
+# writes the full log to /mnt/c/ReFueled/wt/regress-logs/<date>-<shorthash>.log, prints
 # "REGRESS PASS" or "REGRESS FAIL <step>" and removes the worktree again.
 #   --ref : additionally keeps the log as regress-logs/ref-<shorthash>.log (reference for later runs).
 #
@@ -21,8 +21,8 @@
 # Untested until Nix is installed in the WSL (docs/refueled/TOOLCHAIN.md section 3).
 set -uo pipefail
 
-REPO=${REGRESS_REPO:-/mnt/c/nitro-ps4-port}
-WT_ROOT=${REGRESS_WT_ROOT:-/mnt/c/nitro-ps4-wt}
+REPO=${REGRESS_REPO:-/mnt/c/ReFueled/repo}
+WT_ROOT=${REGRESS_WT_ROOT:-/mnt/c/ReFueled/wt}
 LOG_DIR=$WT_ROOT/regress-logs
 
 usage() { echo "usage: $0 <commit-or-branch> [--ref]" >&2; exit 3; }

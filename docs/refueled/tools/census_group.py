@@ -37,7 +37,7 @@ def load_owners(path):
 
 def normalize(path):
     path = path.strip().replace('\\', '/')
-    for prefix in (ROOT + '/', '/c/nitro-ps4-port/'):
+    for prefix in (ROOT + '/', '/c/ReFueled/repo/'):
         if path.lower().startswith(prefix.lower()):
             return path[len(prefix):]
     # GPU objects are built in out/win/gpu with sources given relative to it.
