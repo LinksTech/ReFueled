@@ -5,6 +5,10 @@
   Header `src/platform/pf_*.h`, `src/runtime.h`, `gpu/bbgpu.h` gehören Opus: Bedarf melden, nicht ändern.
 - Nicht committen, kein `git config`, kein push, keine Remotes, nichts installieren, nichts
   herunterladen, keine Workflows/Multi-Agent-Werkzeuge.
+- **Keine Personen namentlich nennen** (feste Regel 2026-10-14, öffentliches Repo): in keinem Dokument, Log,
+  Kommentar, Commit oder Code. Auftraggeber = "Projektleitung" (Tabellen "PL", englisch "the project lead").
+  Keine Benutzernamen, Rechnernamen, E-Mail-Adressen, keine Pfade `C:\Users\<name>` (stattdessen
+  `%APPDATA%`, `C:\Users\…`). `publish_check.py` blockiert jeden Push mit solchen Angaben.
 - **Kein WSL, kein Linux, keine VM** (Planänderung 2026-10-13). Linux-Code wird lokal weder gebaut
   noch getestet. Einzige Build-Umgebung: Windows mit MSYS2 CLANG64 (sobald installiert, Shell
   `C:\msys64\usr\bin\bash.exe -lc` mit `MSYSTEM=CLANG64`) und – nur für reine Win32-Dateien – MSVC
