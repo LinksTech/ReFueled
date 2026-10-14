@@ -14,9 +14,9 @@ name: linux-build
 on:
   workflow_dispatch:
   push:
-    branches: [refueled/windows]
+    branches: [main]
   pull_request:
-    branches: [refueled/windows]
+    branches: [main]
 
 jobs:
   linux:
