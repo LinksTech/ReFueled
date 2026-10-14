@@ -102,16 +102,6 @@ if [[ ${BB_GUARD_SELFTEST:-0} == 1 ]]; then
     exit "$selftest_failed"
 fi
 
-# ---- unsupported on Windows (for now) ---------------------------------------------------------
-# Mods need a link tree of the game folder (symbolic links need rights an ordinary user does not
-# have); they are not supported here yet. scripts/mods.py is not run.
-if [[ -n ${BB_MODS_DIR:-}${BB_MODS_CONFIG:-} || ${BB_MODS_ENABLED:-0} == 1 ]]; then
-    echo 'Mods are not supported on Windows yet (BB_MODS_DIR/BB_MODS_CONFIG/BB_MODS_ENABLED=1 is set). Unset them.' >&2
-    exit 1
-fi
-if [[ -d $(posix "$data")/mods || -d $game-mods ]]; then
-    echo "Note: mod folders exist but mods are not supported on Windows yet; the original game files are used." >&2
-fi
 if [[ ${1:-} == --software ]]; then
     echo '--software (Lavapipe) is a Linux option and is ignored on Windows.' >&2
     shift
@@ -176,6 +166,22 @@ else
 fi
 export BB_GAME_PROFILE=${profile:-ctr}
 echo "Game profile: $BB_GAME_PROFILE"
+
+# ---- mods: virtual overlay, no links (docs/refueled/MODLOADER.md section 3) --------------------
+# Symbolic links need rights an ordinary user does not have, so run.sh's link tree is not used here:
+# scripts/mods.py --manifest writes <out>\mods.manifest (same selection) and the runtime resolves
+# /app0 through it (BB_MOD_MANIFEST). Same condition as run.sh: mods on (BB_MODS_ENABLED not 0)
+# and a mods folder or the shadPS4-style <game>-mods folder. Otherwise the variable stays unset.
+mods_dir=$(realpath -m -- "$(posix "${BB_MODS_DIR:-$data/mods}")")
+if [[ ${BB_MODS_ENABLED:-1} != 0 && ( -d $mods_dir || -d $game-mods ) ]]; then
+    run "$PYTHON" scripts/mods.py "$game_w" --out "$out_w" --mods-dir "$(winp "$mods_dir")" \
+        --config "$(winp "$(realpath -m -- "$(posix "${BB_MODS_CONFIG:-$data/mods.json}")")")" \
+        --enabled "${BB_MODS_ENABLED:-1}" --manifest "$out_w\\mods.manifest"
+    export BB_MOD_MANIFEST="$out_w\\mods.manifest"
+    echo "Mods: virtual overlay, BB_MOD_MANIFEST=$BB_MOD_MANIFEST"
+else
+    unset BB_MOD_MANIFEST
+fi
 
 # ---- prepare and link (all write only into out/) ----------------------------------------------
 run "$PYTHON" scripts/prepare.py "$game_w" --out "$out_w"
