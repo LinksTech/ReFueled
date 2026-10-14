@@ -240,6 +240,7 @@ beschränkt; Linux entspricht dort wieder dem Stand vor dem Port.
 | 8 | K5a, S2 | CPU-Zahl-Rückfall `sysconf(_SC_NPROCESSORS_ONLN)` statt `hardware_concurrency()`; Thread-Liste meldet unlesbares `comm` als "?" statt den Eintrag zu überspringen | nur wenn `sched_getaffinity` bzw. das Lesen von `comm` scheitert | beibehalten |
 | 9 | V1, V2, R1, S2 | Diagnosetexte: Symbol-/Modulnamen auf 127/259 Zeichen gekürzt; `vk_scheduler`-Backtrace selbst formatiert statt `backtrace_symbols_fd` (gleiches Muster, evtl. andere Symbolnamen); Wait-Trace bei `dli_fname == NULL` mit `%p` | nur in Diagnoseausgaben (BB_*-Schalter, Abstürze) | beibehalten |
 | 10 | T2b, T2c | `mods.py`, `patches.py`, `gen_import_names.py` lesen/schreiben UTF-8 unabhängig von der Locale | nur mit Nicht-UTF-8-Locale (vorher Fehler bzw. andere Kodierung) | beibehalten |
+| 11 | GS1 | `scePthreadAttrGetstack` wird von der Runtime beantwortet (Stack aus `scePthreadAttrGet`, sonst NULL + eingestellte Größe); vorher unaufgelöster Import, Stopp beim ersten Aufruf | nur wenn das Spiel die Funktion aufruft (1.00: libSceNpToolkit2; für 1.21 unbekannt) | beibehalten (neue Funktion, gleich auf beiden Plattformen; 2026-10-14, Projektleitung informiert) |
 
 Ohne beobachtbaren Unterschied (daher "keine"): Reihenfolge der zwei SIGTRAP-Handler (S1/K8, Fälle
 disjunkt), `pause()` → Schlafschleife (S2), calloc statt malloc (R5a), rekursiver Mutex per

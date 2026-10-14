@@ -21,5 +21,6 @@ geprüft von Opus.
 | Import `-quPa4SEJUw#libkernel` unaufgelöst (Stopp beim Aufruf) | Runtime-Funktion | neuer Import, auf beiden Plattformen gleich |
 | `ThreadAttr` ohne Stackadresse | zwei Felder mehr, nur von Getstack gelesen | bestehende Pfade unverändert |
 
-Verhaltensabweichung Linux: keine in bestehenden Abläufen; zusätzlich beantwortet die Runtime jetzt einen
-Import, der vorher zum Stopp geführt hätte (gilt für Linux und Windows gleich).
+Verhaltensabweichung Linux: `scePthreadAttrGetstack` liefert jetzt Werte, wo vorher der unaufgelöste Import
+zum Stopp führte (nur wenn das Spiel die Funktion aufruft; gleich auf beiden Plattformen). Bestehende Abläufe
+unverändert. Entscheidung Opus: beibehalten, ARCHITECTURE.md D21 Nr. 11, Hinweis in linux-build.yml.

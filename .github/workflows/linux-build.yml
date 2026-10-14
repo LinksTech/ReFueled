@@ -8,6 +8,7 @@
 #   5 stale-temp cleanup also descends on DT_UNKNOWN          6 MAP_FIXED_NOREPLACE on kernels < 4.17
 #   7 pool()/map_phys error paths                             8 CPU count / thread-name fallbacks
 #   9 diagnostic texts (name truncation, own backtrace format) 10 scripts use UTF-8 regardless of locale
+#  11 scePthreadAttrGetstack answered by the runtime (GS1; before: unresolved import, stop when called)
 # D20 (SIGUSR2 thread dump replaced by sampling) was reverted by IF-10; SIGRTMIN+2 is not used.
 name: linux-build
 
