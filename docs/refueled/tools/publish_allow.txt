@@ -1,0 +1,3 @@
+# refueled: allowed publish_check findings, one `<rule> <path-glob>  # reason` per line (Opus decides, the project lead is told)
+sdk  docs/refueled/tools/publish_check.py   # the rule definitions themselves (search patterns, no SDK material)
+user docs/refueled/tools/publish_check.py   # example paths in the docstring and patterns, no real user name
