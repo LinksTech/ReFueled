@@ -77,10 +77,14 @@ oder den echten Rest benennen.
 
 ## 5. Nächste Schritte (Vorschlag, Reihenfolge = kritischer Pfad zuerst)
 
-1. **Benutzerordner der GPU-Lib umleiten** (Opus): Unter Windows schrieb ein Testlauf nach
-   `%APPDATA%\shadPS4`, unter Linux will der Runtime-Test nach `~/.local/share/shadPS4`. Ziel: Tests und
-   Läufe legen den Ordner unter `out/` bzw. `C:\ReFueled\tmp\<ID>` an (Umgebungsvariable oder portabler
-   `user`-Ordner), Linux-CI wird damit grün. Mit Pflichtzeile „Verhaltensabweichung Linux“.
+1. **Benutzerordner der GPU-Lib in den Tests umleiten** (Opus): Die Runtime-Tests (test_runtime, test_sema,
+   test_eventflag binden die GPU-Lib ein) schreiben ohne `BB_GPU_USER_DIR` unter Windows nach
+   `%APPDATA%\shadPS4` (zuletzt `custom_trophy\Notice.txt` bei den Umzugs-Testläufen am 2026-10-14) und brechen
+   unter Linux in der CI ab, weil `~/.local/share` fehlt. Geprüft: Mit
+   `BB_GPU_USER_DIR=C:\ReFueled\tmp\gpu-user` landet alles dort, `%APPDATA%` bleibt unberührt. Lösung:
+   build-windows.sh und build.sh setzen `BB_GPU_USER_DIR` für die Tests auf einen Ordner unter `out/`, falls
+   nicht gesetzt; danach ist die Linux-CI voraussichtlich grün. Pflichtzeile „Verhaltensabweichung Linux“
+   (nur Testumgebung). Bis dahin die Variable bei jedem Lauf selbst setzen (CLAUDE.md).
 2. **1.00-Rauchtest wiederholen** (Opus) mit GS1, alle Ausgaben unter `C:\ReFueled\tmp\M1R2`, nächsten
    Stopp dokumentieren. Kein Debuggen über M1 hinaus, solange 1.21 fehlt, außer die Projektleitung gibt es frei.
 3. **TASKS.md bereinigen** (Abschnitt 4), danach freie Pakete parallel an Sonnet (F5/F7-Abnahme, R2-Rest,
@@ -107,7 +111,10 @@ oder den echten Rest benennen.
   danach reflog expire + gc; im neuen Repo gibt es nur noch `main` (SacredFire), `refueled/windows` und die
   Upstream-Tags. T1 selbst ist über b9e2d2d done.
 - **`%APPDATA%\shadPS4`** bleibt (dort lag schon vorher etwas); entfernt werden nur Dateien, die nachweislich aus
-  unseren Testläufen stammen.
+  unseren Testläufen stammen. Befund (NTFS-Erstellungszeiten + Sitzungsprotokolle): nachweislich von uns sind
+  nur die leeren Ordner `trophy`, `cache`, `home`, `custom_modules`, `fonts` (angelegt 2026-10-13 22:36:38 beim
+  Vulkan-Rauchtest der Welle B). Das Grundgerüst und `custom_trophy\Notice.txt` (angelegt 2026-10-13 20:25:35,
+  kein ReFueled-Lauf zu dieser Zeit belegt) bleiben; Notice.txt wurde von unseren Tests nur neu geschrieben.
 - **Upstream SacredFire ist nicht mehr erreichbar** (geprüft 2026-10-14): `T3CHNOLOG1C/SacredFire` liefert 404,
   ohne Umleitung (GitHub leitet umbenannte oder verschobene Repos weiter, also gelöscht oder privat). Unter den
   61 öffentlichen Repos des Kontos ist kein Nachfolger; die GitHub-Suche nach dem Namen findet nur fremde
