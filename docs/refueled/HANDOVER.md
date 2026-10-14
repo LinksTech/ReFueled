@@ -1,4 +1,4 @@
-# ReFueled – Übergabe (Stand 2026-10-14 abends)
+# ReFueled – Übergabe (Stand 2026-10-14, Umzug abgeschlossen)
 
 Für eine neue Sitzung, die ohne die bisherige Unterhaltung weitermacht. Zuerst `C:\ReFueled\CLAUDE.md`
 (nicht versioniert) lesen, dann diese Datei, dann [AGENT-REGELN.md](AGENT-REGELN.md),
@@ -34,9 +34,10 @@ GitHub-Commits) haben sich beim zweiten Durchgang geändert; kein Dokument verwe
 ## 2. Prüfstand im neuen Ort
 
 - `bash build-windows.sh --test` aus leerem `out/` (Abhängigkeiten neu geholt): Exe gelinkt,
-  Plattformtests **11/11 grün**, build.sh-Satz **5/6**: `test_pad.exe` wird nach dem Linken von McAfee
-  in Quarantäne genommen (Quarantäne-Einträge 21:22:03, 21:22:43 und, nach Einrichtung der Ausnahme für
-  `repo\out` und `wt`, erneut 21:43:58), der Test selbst lief im alten Ort grün. Frage 1.
+  Plattformtests **11/11 grün**, build.sh-Satz **5 grün + test_pad AV-blockiert** (kein Fehler des Ports):
+  McAfee nimmt `test_pad.exe` nach dem Linken in Quarantäne (Einträge 21:22:03, 21:22:43 und, nach Einrichtung
+  der Ausnahme für `repo\out` und `wt`, erneut 21:43:58). Derselbe Test lief im alten Ort grün. In Berichten
+  test_pad bis zur Klärung als „AV-blockiert“ führen, nicht als Fehler (Vorgabe Projektleitung). Siehe §5 Schritt 2.
 - Einmalig beobachtet: `test_posix_subset` rename EACCES (frisch geschriebene Datei kurz gesperrt, vermutlich
   ebenfalls der Virenscanner); viermal einzeln und im nächsten Gesamtlauf grün.
 - `git fsck` sauber, publish_check über die gesamte Historie sauber (170 Commits, Spielordner abgeglichen).
@@ -85,19 +86,22 @@ oder den echten Rest benennen.
    build-windows.sh und build.sh setzen `BB_GPU_USER_DIR` für die Tests auf einen Ordner unter `out/`, falls
    nicht gesetzt; danach ist die Linux-CI voraussichtlich grün. Pflichtzeile „Verhaltensabweichung Linux“
    (nur Testumgebung). Bis dahin die Variable bei jedem Lauf selbst setzen (CLAUDE.md).
-2. **1.00-Rauchtest wiederholen** (Opus) mit GS1, alle Ausgaben unter `C:\ReFueled\tmp\M1R2`, nächsten
+2. **McAfee klären – Vorrang vor jedem Spiellauf und vor M1.** Vermutlich verhaltensbasierte Erkennung
+   (test_pad liest Eingaben: Keylogger-Heuristik). `sacredfire.exe` liest ebenfalls Tastatur/Pad und wird
+   voraussichtlich dasselbe Muster zeigen. Die Projektleitung klärt die Erkennungsart in McAfee. Bis dahin:
+   test_pad = „AV-blockiert“; vor einem Spiellauf prüfen, ob die Exe nach dem Linken noch existiert
+   (Quarantäne: `C:\ProgramData\McAfee\wps\amq\quarantine`); McAfee nie selbst umkonfigurieren.
+3. **1.00-Rauchtest wiederholen** (Opus, erst nach Schritt 2) mit GS1, alle Ausgaben unter `C:\ReFueled\tmp\M1R2`, nächsten
    Stopp dokumentieren. Kein Debuggen über M1 hinaus, solange 1.21 fehlt, außer die Projektleitung gibt es frei.
-3. **TASKS.md bereinigen** (Abschnitt 4), danach freie Pakete parallel an Sonnet (F5/F7-Abnahme, R2-Rest,
+4. **TASKS.md bereinigen** (Abschnitt 4), danach freie Pakete parallel an Sonnet (F5/F7-Abnahme, R2-Rest,
    RZ3–RZ5), kein Leerlauf.
-4. **Sobald 1.21 da ist:** `game_check.py`, dann M1 echt, danach direkt weiter M2 (erster GPU-Submit) und
+5. **Sobald 1.21 da ist:** `game_check.py`, dann M1 echt, danach direkt weiter M2 (erster GPU-Submit) und
    erstes vom Spiel gerendertes Bild.
 
 ## 6. Offene Fragen an die Projektleitung
 
-1. **McAfee** entfernt `test_pad.exe` im neuen Ort auch nach eingerichteter Ausnahme für `C:\ReFueled\repo\out`
-   und `C:\ReFueled\wt` (21:43:58). Die Ausnahme greift für diesen Zugriff nicht (vermutlich eine andere
-   McAfee-Komponente als der Echtzeit-Scan, oder die Ausnahme wird erst nach Neustart des Dienstes wirksam).
-   Bis dahin ist der build.sh-Testsatz 5/6, und die alten Orte sind nicht gelöscht (Umzug Schritt 4/5 offen).
+1. **McAfee**: Erkennungsart von `test_pad.exe` (Ausnahme für `repo\out` und `wt` greift nicht). Die
+   Projektleitung klärt das; Ergebnis entscheidet, ob test_pad und die Spiel-Exe unter Windows laufen können.
 2. **Dump 1.21**: weiterhin fehlend; M1 hängt daran.
 3. **Alter GitHub-Commit**: Nach dem force push ist der alte Commit aus keiner Ref mehr erreichbar. GitHub kann
    ihn über die direkte Commit-Adresse noch eine Zeit lang ausliefern; endgültig entfernt ihn nur eine Anfrage
@@ -123,3 +127,14 @@ oder den echten Rest benennen.
   im README (Credits unverändert). publish_check nimmt die Upstream-Historie jetzt über
   `refs/remotes/sacredfire-gone/main` und zusätzlich über den festen Commit `f1f7935` (letzter Upstream-Stand)
   von der Prüfung aus, damit Pushes nicht an der fremden Upstream-Historie hängen bleiben.
+- **Umzug abgeschlossen** (Löschung trotz test_pad-Sperre freigegeben: test_pad lief im alten Ort grün, die
+  einzige Änderung ist McAfee, kein Umzugsfehler). Gelöscht: `C:\nitro-ps4-port` (inkl. des alten Branches
+  `refueled/pkg/T1`), `C:\nitro-ps4-ref`, `C:\nitro-ps4-wt`, `C:\nitro-ps4-notes`, die ReFueled-Reste unter
+  `C:\CTR Reload\tmp` und die ReFueled-Einträge im Gedächtnis der CTR-Reload-Sitzung, die fünf leeren Ordner in
+  `%APPDATA%\shadPS4`. Gesperrt (Linker-Reste, löscht die Projektleitung nach dem Neustart):
+  `C:\nitro-ps4-port\out\win\test_exception.exe.tmp0`, `…\test_stubs.exe.tmp0`,
+  `C:\nitro-ps4-wt\MO\out\win\test_exception.exe.tmp0..2` sowie im neuen Repo
+  `C:\ReFueled\repo\out\win\test_exception.exe.tmp0..2` (Build-Ausgabe, darf bleiben). Danach:
+  persönliche Angaben nur noch in fremden Drittanbieter-Dateien (gleichnamige andere Personen) und in den
+  Claude-Sitzungsprotokollen, die die Projektleitung selbst löscht; lokale Git-Reflogs (Windows-Benutzername als
+  Fallback-Identität bei Klonen) geleert, archivierte Scratch-Skripte geschwärzt.
